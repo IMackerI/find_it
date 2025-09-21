@@ -1,15 +1,19 @@
 import 'dart:io';
 import 'dart:math';
-import 'package:find_it/colors.dart';
-import 'package:find_it/pages/item.dart';
+
 import 'package:flutter/material.dart';
-import 'package:find_it/models/space_model.dart';
-import 'package:find_it/models/item_model.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:remove_diacritic/remove_diacritic.dart';
 
+import 'package:find_it/models/item_model.dart';
+import 'package:find_it/models/space_model.dart';
+
+import '../theme/app_theme.dart';
+import 'item.dart';
+
 class SearchPage extends StatefulWidget {
-  SearchPage({super.key});
+  const SearchPage({super.key});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -19,8 +23,21 @@ class _SearchPageState extends State<SearchPage> {
   List<SpaceModel> places = SpaceModel.currentSpaces;
   String searchValue = '';
   List<ItemModel> items = [];
+  late final TextEditingController _searchController;
 
-  void getItems(){
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController(text: searchValue);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void getItems() {
     items = [];
     for (var place in places) {
       place.assignParents();
@@ -34,135 +51,242 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  List<ItemModel> getFilteredItems(){
+  List<ItemModel> getFilteredItems() {
     return items.where((item) {
-      return removeDiacritics(item.name.toLowerCase()).contains(removeDiacritics(searchValue.toLowerCase())) 
-      || removeDiacritics(item.description.toLowerCase()).contains(removeDiacritics(searchValue.toLowerCase()));
+      return removeDiacritics(item.name.toLowerCase()).contains(removeDiacritics(searchValue.toLowerCase())) ||
+          removeDiacritics(item.description.toLowerCase()).contains(removeDiacritics(searchValue.toLowerCase()));
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
+    final theme = Theme.of(context);
+
     getItems();
     List<ItemModel> filteredItems = getFilteredItems();
 
     return Scaffold(
       appBar: AppBar(
-        title: searchBar(context),
-        automaticallyImplyLeading: false, // Add this line to remove the back arrow
-        backgroundColor: AppColors.primary,
+        automaticallyImplyLeading: false,
+        titleSpacing: 0,
+        title: Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: _SearchBar(
+            controller: _searchController,
+            onChanged: (value) {
+              setState(() {
+                searchValue = value;
+              });
+            },
+            onBack: () {
+              HapticFeedback.selectionClick();
+              Navigator.pop(context);
+            },
+          ),
+        ),
       ),
       body: Container(
-        color: AppColors.background,
-        child: ListView.builder(
-          itemCount: filteredItems.length,
-          itemBuilder: (context, index) {
-            String parentName = '';
-            if (filteredItems[index].parent != null) {
-              parentName = filteredItems[index].parent!.name;
-              if(filteredItems[index].parent!.parent != null) {
-                parentName = filteredItems[index].parent!.parent!.name + ' > ' + parentName;
-                if(filteredItems[index].parent!.parent!.parent != null) {
-                  parentName = filteredItems[index].parent!.parent!.parent!.name + ' > ' + parentName;
-                }
-              }
-            }
-            return searchEntry(filteredItems, index, parentName, context);
-          },
-        ),
-      ),
-    );
-  }
-
-  ListTile searchEntry(List<ItemModel> filteredItems, int index, String parentName, BuildContext context) {
-    return ListTile(
-      title: Text(filteredItems[index].name, style: const TextStyle(color: AppColors.textPrimary)),
-      subtitle: Text(parentName, style: const TextStyle(color: AppColors.textSecondary)),
-      leading: CircleAvatar(
-        child: filteredItems[index].imagePath == null ? ItemModel.defaultIcons[Random().nextInt(ItemModel.defaultIcons.length)] : null,
-        backgroundImage: filteredItems[index].imagePath != null ? FileImage(File(filteredItems[index].imagePath!)) : null,
-        backgroundColor: AppColors.iconBackground,
-      ),
-      onTap: () async {
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ItemDisplayPage(item: filteredItems[index]),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [palette.surfaceDim, palette.background],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-        );
-        if(result == true){
-          setState(() {
-            getItems();
-            filteredItems = getFilteredItems();
-          });
-        }
-      },
+        ),
+        child: filteredItems.isEmpty
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SvgPicture.asset(
+                        'assets/icons/Search.svg',
+                        width: 64,
+                        height: 64,
+                        colorFilter: ColorFilter.mode(palette.muted, BlendMode.srcIn),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No items found',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Try searching with a different name or description.',
+                        style: theme.textTheme.bodyMedium?.copyWith(color: palette.muted),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : ListView.separated(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                itemCount: filteredItems.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final item = filteredItems[index];
+                  String parentName = '';
+                  if (item.parent != null) {
+                    parentName = item.parent!.name;
+                    if (item.parent!.parent != null) {
+                      parentName = '${item.parent!.parent!.name} > ' + parentName;
+                      if (item.parent!.parent!.parent != null) {
+                        parentName = '${item.parent!.parent!.parent!.name} > ' + parentName;
+                      }
+                    }
+                  }
+
+                  return _SearchResultTile(
+                    item: item,
+                    parentName: parentName,
+                    onTap: () async {
+                      HapticFeedback.lightImpact();
+                      final result = await Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ItemDisplayPage(item: item),
+                        ),
+                      );
+                      if (result == true) {
+                        setState(() {
+                          getItems();
+                          filteredItems = getFilteredItems();
+                        });
+                      }
+                    },
+                  );
+                },
+              ),
+      ),
     );
   }
+}
 
-  Container searchBar(BuildContext context) {
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({
+    required this.onChanged,
+    required this.onBack,
+    required this.controller,
+  });
+
+  final ValueChanged<String> onChanged;
+  final VoidCallback onBack;
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+
     return Container(
-        decoration: const BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Color.fromARGB(80, 177, 185, 192),
-              blurRadius: 40,
-              spreadRadius: 5,
-              offset: Offset(0, 0)
-            )
-          ]
+      decoration: BoxDecoration(
+        color: palette.surfaceBright,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: palette.shadow,
+            blurRadius: 20,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        autofocus: true,
+        decoration: InputDecoration(
+          hintText: 'Search for an item',
+          border: InputBorder.none,
+          prefixIcon: IconButton(
+            icon: SvgPicture.asset(
+              'assets/icons/Arrow - Left 2.svg',
+              colorFilter: ColorFilter.mode(palette.iconForeground, BlendMode.srcIn),
+            ),
+            onPressed: onBack,
+          ),
+          suffixIcon: Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Icon(Icons.tune_rounded, color: palette.muted),
+          ),
         ),
-        child: TextField(
-          onChanged: (value) {
-            setState(() {
-              searchValue = value;
-            });
-          },
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Search for an item',
-            hintStyle: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 16
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(20),
-              borderSide: BorderSide.none
-            ),
-            contentPadding: const EdgeInsets.all(10),
-            prefixIcon: GestureDetector(
-              onTap: () {
-                Navigator.pop(context);
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: SvgPicture.asset('assets/icons/Arrow - Left 2.svg'),
+      ),
+    );
+  }
+}
+
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({
+    required this.item,
+    required this.parentName,
+    required this.onTap,
+  });
+
+  final ItemModel item;
+  final String parentName;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: palette.surfaceBright,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: palette.shadow,
+                blurRadius: 20,
+                offset: const Offset(0, 10),
               ),
-            ),
-            suffixIcon: SizedBox(
-              width: 100,
-              child: IntrinsicHeight(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+            ],
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: palette.iconBackground,
+                foregroundColor: palette.iconForeground,
+                backgroundImage: item.imagePath != null ? FileImage(File(item.imagePath!)) : null,
+                child: item.imagePath == null
+                    ? Icon(
+                        ItemModel.defaultIcons[Random().nextInt(ItemModel.defaultIcons.length)],
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    VerticalDivider(
-                      color: Colors.grey[300],
-                      thickness: 1,
-                      indent: 10,
-                      endIndent: 10,
+                    Text(
+                      item.name,
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: SvgPicture.asset('assets/icons/Filter.svg'),
+                    const SizedBox(height: 4),
+                    Text(
+                      parentName,
+                      style: theme.textTheme.bodySmall?.copyWith(color: palette.muted),
                     ),
                   ],
                 ),
               ),
-            ),
-            fillColor: Colors.white,
-            filled: true
+              const Icon(Icons.chevron_right_rounded),
+            ],
           ),
         ),
-      );
+      ),
+    );
   }
 }

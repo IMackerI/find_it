@@ -1,12 +1,13 @@
 import 'dart:io';
 
-import 'package:find_it/colors.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+
 import 'package:find_it/models/item_model.dart';
 import 'package:find_it/models/space_model.dart';
-import 'package:flutter/widgets.dart';
-import 'package:flutter_svg/svg.dart';
-import 'package:image_picker/image_picker.dart';
+
+import '../theme/app_theme.dart';
 
 class ItemDisplayPage extends StatefulWidget {
   final ItemModel item;
@@ -44,6 +45,7 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
   }
 
   Future<void> _pickImage() async {
+    HapticFeedback.selectionClick();
     final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
       setState(() {
@@ -54,41 +56,71 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
+    final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: appBar(context),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      appBar: _buildAppBar(theme),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [palette.surfaceDim, palette.background],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
         child: ListView(
+          padding: const EdgeInsets.all(24),
           children: [
             GestureDetector(
               onTap: _pickImage,
-              child: Container(
-                height: 200,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  image: DecorationImage(
-                    image: _imagePath != null ? FileImage(File(_imagePath!)) : AssetImage('assets/icons/dots.svg') as ImageProvider,
-                    fit: BoxFit.cover,
+              child: AspectRatio(
+                aspectRatio: 4 / 3,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: palette.surfaceBright,
+                      boxShadow: [
+                        BoxShadow(
+                          color: palette.shadow,
+                          blurRadius: 24,
+                          offset: const Offset(0, 14),
+                        ),
+                      ],
+                    ),
+                    child: _imagePath != null
+                        ? Image.file(
+                            File(_imagePath!),
+                            fit: BoxFit.cover,
+                          )
+                        : Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.add_a_photo_rounded, size: 48, color: palette.muted),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Add a photo',
+                                  style: theme.textTheme.bodyMedium?.copyWith(color: palette.muted),
+                                ),
+                              ],
+                            ),
+                          ),
                   ),
                 ),
-                child: _imagePath == null
-                      ? Icon(
-                          Icons.add_a_photo,
-                          color: Colors.black,
-                          size: 50,
-                        )
-                      : null,
               ),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 24),
             _buildTextField('Name', _nameController),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             _buildTextField('Description', _descriptionController, maxLines: 3),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             _buildTextField('Location', _locationController),
-            SizedBox(height: 48),
+            const SizedBox(height: 32),
             ElevatedButton(
               onPressed: () {
+                HapticFeedback.lightImpact();
                 setState(() {
                   widget.item.name = _nameController.text;
                   widget.item.description = _descriptionController.text;
@@ -98,14 +130,7 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
                 SpaceModel.saveItems();
                 Navigator.pop(context, true);
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondary,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text('Submit Changes', style: TextStyle(color: AppColors.textPrimary)),
+              child: const Text('Save changes'),
             ),
           ],
         ),
@@ -113,84 +138,62 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
     );
   }
 
-  AppBar appBar(BuildContext context) {
+  AppBar _buildAppBar(ThemeData theme) {
     return AppBar(
-      title: const Text(
-        'Item Details',
-        style: TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.bold
-        ),
+      title: Text(
+        'Item details',
+        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
       ),
-      centerTitle: true,
-      backgroundColor: AppColors.primary,
-      leading: GestureDetector(
-        onTap: () {
-          Navigator.of(context).pop();
-          SpaceModel.saveItems();
-        },
-        child: Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
-          ),
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: SvgPicture.asset('assets/icons/Arrow - Left 2.svg'),
-          ),
-        ),
-      ),
-      actions: [
-        GestureDetector(
-          onTap: () async {
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                title: Text('Are you sure?'),
-                content: Text('Do you want to delete this object?'),
-                actions: [
-                  TextButton(
-                  child: Text('Cancel'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  ),
-                  TextButton(
-                  child: Text('Delete'),
-                  onPressed: () {
-                    setState(() {
-                      parentSpace!.items.remove(widget.item);
-                    });
-                    SpaceModel.saveItems();
-                    Navigator.of(context).pop();
-                    Navigator.of(context).pop(true);
-                  },
-                  ),
-                ],
-                );
-              },
-            );
+      leading: Padding(
+        padding: const EdgeInsets.only(left: 12),
+        child: IconButton.filledTonal(
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            Navigator.of(context).pop();
+            SpaceModel.saveItems();
           },
-          child: Container(
-            margin: const EdgeInsets.all(10),
-            width: 40,
-            decoration: BoxDecoration(
-              color: AppColors.iconBackground,
-              borderRadius: BorderRadius.circular(10)
-            ),
-            alignment: Alignment.center,
-            child: const Icon(
-              Icons.delete,
-              color: AppColors.iconColor,
-            ),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+      ),
+      leadingWidth: 72,
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: IconButton.filledTonal(
+            onPressed: () {
+              HapticFeedback.mediumImpact();
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    title: const Text('Delete item'),
+                    content: const Text('Do you want to delete this item?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          HapticFeedback.heavyImpact();
+                          setState(() {
+                            parentSpace?.items.remove(widget.item);
+                          });
+                          SpaceModel.saveItems();
+                          Navigator.of(context).pop();
+                          Navigator.of(context).pop(true);
+                        },
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+            icon: const Icon(Icons.delete_outline_rounded),
           ),
         ),
-      ]
+      ],
     );
   }
 
@@ -201,9 +204,6 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
       onTapOutside: (event) => FocusScope.of(context).unfocus(),
       decoration: InputDecoration(
         labelText: label,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
       ),
     );
   }
