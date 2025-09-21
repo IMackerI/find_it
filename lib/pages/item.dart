@@ -126,8 +126,12 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
                     widget.item.locationSpecification = _locationController.text;
                     widget.item.imagePath = _imagePath;
                   });
-                  await SpaceModel.saveItems();
+                  final saved = await SpaceModel.saveItems();
                   if (!mounted) return;
+                  if (!saved) {
+                    _showSaveFailure('Unable to save changes. Please try again.');
+                    return;
+                  }
                   Navigator.pop(context, true);
                 },
                 icon: const Icon(Icons.check_circle_outline_rounded),
@@ -153,10 +157,19 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
           'assets/icons/Arrow - Left 2.svg',
           color: theme.colorScheme.onSurface,
         ),
-        onPressed: () {
+        onPressed: () async {
           HapticFeedback.selectionClick();
+          final messenger = ScaffoldMessenger.of(context);
+          final saved = await SpaceModel.saveItems();
+          if (!mounted) return;
+          if (!saved) {
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('We couldn\'t save your items. Please try again.'),
+              ),
+            );
+          }
           Navigator.of(context).pop();
-          SpaceModel.saveItems();
         },
       ),
       actions: [
@@ -189,8 +202,12 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
             );
             if (confirmed == true) {
               parentSpace?.items.remove(widget.item);
-              await SpaceModel.saveItems();
+              final saved = await SpaceModel.saveItems();
               if (!mounted) return;
+              if (!saved) {
+                _showSaveFailure('Failed to delete item. Please try again.');
+                return;
+              }
               Navigator.of(context).pop(true);
             }
           },
@@ -208,6 +225,15 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
       decoration: InputDecoration(
         labelText: label,
       ),
+    );
+  }
+
+  void _showSaveFailure(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 }

@@ -72,7 +72,11 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       SpaceModel.currentSpaces.add(SpaceModel(name: name.trim()));
     });
-    await SpaceModel.saveItems();
+    final saved = await SpaceModel.saveItems();
+    if (!saved) {
+      _showSaveFailure();
+      return;
+    }
     HapticFeedback.mediumImpact();
   }
 
@@ -91,7 +95,11 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       space.name = newName.trim();
     });
-    await SpaceModel.saveItems();
+    final saved = await SpaceModel.saveItems();
+    if (!saved) {
+      _showSaveFailure();
+      return;
+    }
     HapticFeedback.lightImpact();
   }
 
@@ -125,7 +133,11 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         SpaceModel.currentSpaces.removeAt(index);
       });
-      await SpaceModel.saveItems();
+      final saved = await SpaceModel.saveItems();
+      if (!saved) {
+        _showSaveFailure();
+        return;
+      }
       HapticFeedback.mediumImpact();
     }
   }
@@ -164,6 +176,17 @@ class _HomePageState extends State<HomePage> {
     );
     controller.dispose();
     return result;
+  }
+
+  void _showSaveFailure() {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('We couldn\'t save your changes. Please try again.'),
+      ),
+    );
   }
 
   @override

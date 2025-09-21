@@ -162,17 +162,9 @@ class _RoomPageState extends State<RoomPage> {
 
     HapticFeedback.selectionClick();
 
-    try {
-      await SpaceModel.saveItems();
-    } catch (e, stackTrace) {
-      debugPrint('Failed to save room: $e\n$stackTrace');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Room added but saving changes failed.'),
-        ),
-      );
-    }
+    await _saveSpacesWithFeedback(
+      failureMessage: 'Room added but saving changes failed.',
+    );
   }
 
   @override
@@ -348,7 +340,10 @@ class _RoomPageState extends State<RoomPage> {
                         selected!.items =
                             List<ItemModel>.from(selected!.items)..add(newItem);
                       });
-                      await SpaceModel.saveItems();
+                      await _saveSpacesWithFeedback(
+                        failureMessage:
+                            'Failed to save the new item. Please try again.',
+                      );
                     }
                   },
                 ),
@@ -420,7 +415,9 @@ class _RoomPageState extends State<RoomPage> {
               setState(() {
                 selected!.items.remove(item);
               });
-              await SpaceModel.saveItems();
+              await _saveSpacesWithFeedback(
+                failureMessage: 'Failed to delete the item. Please try again.',
+              );
             }
           },
         ),
@@ -554,7 +551,10 @@ class _RoomPageState extends State<RoomPage> {
                           selected = null;
                         }
                       });
-                      await SpaceModel.saveItems();
+                      await _saveSpacesWithFeedback(
+                        failureMessage:
+                            'Failed to delete the selection. Please try again.',
+                      );
                     }
                   },
                   icon: const Icon(Icons.delete_outline_rounded),
@@ -626,7 +626,9 @@ class _RoomPageState extends State<RoomPage> {
         selected!.mySpaces = (List<SpaceModel>.from(selected!.mySpaces)
           ..add(newDrawer));
       });
-      await SpaceModel.saveItems();
+      await _saveSpacesWithFeedback(
+        failureMessage: 'Failed to save the new drawer. Please try again.',
+      );
     }
   }
 
@@ -663,8 +665,33 @@ class _RoomPageState extends State<RoomPage> {
       setState(() {
         selected!.name = newName;
       });
-      await SpaceModel.saveItems();
+      await _saveSpacesWithFeedback(
+        failureMessage: 'Failed to rename. Please try again.',
+      );
     }
+  }
+
+  Future<bool> _saveSpacesWithFeedback({String? failureMessage}) async {
+    final saved = await SpaceModel.saveItems();
+    if (!mounted) {
+      return saved;
+    }
+    if (!saved) {
+      _showSaveFailureSnackBar(failureMessage);
+    }
+    return saved;
+  }
+
+  void _showSaveFailureSnackBar([String? message]) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+            Text(message ?? 'Failed to save changes. Please try again.'),
+      ),
+    );
   }
 
   AppBar appBar() {
@@ -679,9 +706,11 @@ class _RoomPageState extends State<RoomPage> {
         IconButton(
           icon: const Icon(Icons.save_outlined),
           tooltip: 'Save layout',
-          onPressed: () {
+          onPressed: () async {
             HapticFeedback.selectionClick();
-            SpaceModel.saveItems();
+            await _saveSpacesWithFeedback(
+              failureMessage: 'Failed to save the layout. Please try again.',
+            );
           },
         ),
         if (_isEditMode)
@@ -696,10 +725,13 @@ class _RoomPageState extends State<RoomPage> {
           'assets/icons/Arrow - Left 2.svg',
           color: theme.colorScheme.onSurface,
         ),
-        onPressed: () {
+        onPressed: () async {
           HapticFeedback.selectionClick();
+          await _saveSpacesWithFeedback(
+            failureMessage: 'Failed to save your changes. Please try again.',
+          );
+          if (!mounted) return;
           Navigator.of(context).pop();
-          SpaceModel.saveItems();
         },
       ),
     );

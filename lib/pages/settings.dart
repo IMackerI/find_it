@@ -39,11 +39,16 @@ class _SettingsPageState extends State<SettingsPage> {
             'assets/icons/Arrow - Left 2.svg',
             color: theme.colorScheme.onSurface,
           ),
-          onPressed: () {
+          onPressed: () async {
             HapticFeedback.selectionClick();
+            final saved = await SpaceModel.saveItems();
+            if (!mounted) return;
+            if (!saved) {
+              _showSaveFailure();
+              return;
+            }
             Navigator.of(context).pop(_loaded);
             _loaded = false;
-            SpaceModel.saveItems();
           },
         ),
         backgroundColor: Colors.transparent,
@@ -200,8 +205,12 @@ class _SettingsPageState extends State<SettingsPage> {
         List<dynamic> json = jsonDecode(content);
         SpaceModel.currentSpaces =
             json.map((data) => SpaceModel.fromJson(data)).toList();
-        await SpaceModel.saveItems();
+        final saved = await SpaceModel.saveItems();
         if (!mounted) return;
+        if (!saved) {
+          _showSaveFailure();
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Data loaded from ${file.path}')),
         );
@@ -220,6 +229,17 @@ class _SettingsPageState extends State<SettingsPage> {
         SnackBar(content: Text('Failed to load data: $e')),
       );
     }
+  }
+
+  void _showSaveFailure() {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('We couldn\'t save your spaces. Please try again.'),
+      ),
+    );
   }
 }
 
