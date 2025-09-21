@@ -85,7 +85,6 @@ class SpaceModel {
     mySpaces = List<SpaceModel>.from(mySpaces);
     items = List<ItemModel>.from(items);
 
-
     double sanitizeCoordinate(double value) {
       if (!value.isFinite) {
         return 0;
