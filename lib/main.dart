@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'models/space_model.dart';
@@ -38,7 +40,7 @@ class _FindItAppState extends State<FindItApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      SpaceModel.saveItems();
+      unawaited(SpaceModel.saveItems());
     }
   }
 
