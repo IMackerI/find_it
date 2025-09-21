@@ -277,10 +277,7 @@ class _HomePageState extends State<HomePage> {
           padding: const EdgeInsets.all(12),
           child: SvgPicture.asset(
             'assets/icons/Search.svg',
-            colorFilter: ColorFilter.mode(
-              theme.colorScheme.onSurfaceVariant,
-              BlendMode.srcIn,
-            ),
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
         suffixIcon: Padding(
@@ -364,10 +361,7 @@ class _SpaceCard extends StatelessWidget {
                       child: Center(
                         child: SvgPicture.asset(
                           'assets/icons/dots.svg',
-                          colorFilter: ColorFilter.mode(
-                            colorScheme.onPrimaryContainer,
-                            BlendMode.srcIn,
-                          ),
+                          color: colorScheme.onPrimaryContainer,
                           width: 28,
                           height: 28,
                         ),

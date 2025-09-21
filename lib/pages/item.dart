@@ -151,10 +151,7 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
       leading: IconButton(
         icon: SvgPicture.asset(
           'assets/icons/Arrow - Left 2.svg',
-          colorFilter: ColorFilter.mode(
-            theme.colorScheme.onSurface,
-            BlendMode.srcIn,
-          ),
+          color: theme.colorScheme.onSurface,
         ),
         onPressed: () {
           HapticFeedback.selectionClick();

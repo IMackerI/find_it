@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/svg.dart';
@@ -34,6 +35,118 @@ class _RoomPageState extends State<RoomPage> {
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _showAddRoomDialog() async {
+    HapticFeedback.lightImpact();
+    final controller = TextEditingController();
+    String? errorText;
+
+    final String? roomName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add a new room'),
+              content: TextField(
+                controller: controller,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  labelText: 'Room name',
+                  errorText: errorText,
+                ),
+                onChanged: (value) {
+                  if (errorText != null && value.trim().isNotEmpty) {
+                    setDialogState(() {
+                      errorText = null;
+                    });
+                  }
+                },
+                onSubmitted: (value) {
+                  final trimmed = value.trim();
+                  if (trimmed.isEmpty) {
+                    setDialogState(() {
+                      errorText = 'Enter a room name';
+                    });
+                    return;
+                  }
+                  Navigator.of(dialogContext).pop(trimmed);
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final trimmed = controller.text.trim();
+                    if (trimmed.isEmpty) {
+                      setDialogState(() {
+                        errorText = 'Enter a room name';
+                      });
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(trimmed);
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted || roomName == null || roomName.trim().isEmpty) {
+      return;
+    }
+
+    final String trimmedName = roomName.trim();
+    final mediaSize = MediaQuery.of(context).size;
+    const Size defaultRoomSize = Size(120, 120);
+    final Offset startPosition = Offset(
+      (mediaSize.width - defaultRoomSize.width) / 2,
+      (mediaSize.height - defaultRoomSize.height) / 2,
+    );
+
+    setState(() {
+      for (final room in currentSpace.mySpaces) {
+        room.isSelected = false;
+        for (final drawer in room.mySpaces) {
+          drawer.isSelected = false;
+        }
+      }
+      final newRoom = SpaceModel(
+        name: trimmedName,
+        position: startPosition,
+        size: defaultRoomSize,
+      );
+      newRoom.parent = currentSpace;
+      newRoom.isSelected = true;
+      currentSpace.mySpaces = List.from(currentSpace.mySpaces)..add(newRoom);
+      selected = newRoom;
+      selectedName = 'room';
+      selectedIsRoom = true;
+    });
+
+    HapticFeedback.selectionClick();
+
+    try {
+      await SpaceModel.saveItems();
+    } catch (e, stackTrace) {
+      debugPrint('Failed to save room: $e\n$stackTrace');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Room added but saving changes failed.'),
+        ),
+      );
+    }
   }
 
   @override
@@ -543,62 +656,13 @@ class _RoomPageState extends State<RoomPage> {
           IconButton(
             icon: const Icon(Icons.add_box_outlined),
             tooltip: 'Add room',
-            onPressed: () async {
-              HapticFeedback.lightImpact();
-              final controller = TextEditingController();
-              final String? roomName = await showDialog<String>(
-                context: context,
-                builder: (BuildContext context) {
-                  return AlertDialog(
-                    title: const Text('Add a new room'),
-                    content: TextField(
-                      controller: controller,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Room name',
-                      ),
-                      onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Cancel'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-                        child: const Text('Add'),
-                      ),
-                    ],
-                  );
-                },
-              );
-              controller.dispose();
-              if (roomName != null && roomName.isNotEmpty) {
-                setState(() {
-                  final newRoom = SpaceModel(
-                    name: roomName,
-                    position: Offset(
-                      MediaQuery.of(context).size.width - 200,
-                      MediaQuery.of(context).size.height - 400,
-                    ),
-                    size: const Size(100, 100),
-                  );
-                  newRoom.parent = currentSpace;
-                  currentSpace.mySpaces = List.from(currentSpace.mySpaces)
-                    ..add(newRoom);
-                });
-                await SpaceModel.saveItems();
-              }
-            },
+            onPressed: _showAddRoomDialog,
           ),
       ],
       leading: IconButton(
         icon: SvgPicture.asset(
           'assets/icons/Arrow - Left 2.svg',
-          colorFilter: ColorFilter.mode(
-            theme.colorScheme.onSurface,
-            BlendMode.srcIn,
-          ),
+          color: theme.colorScheme.onSurface,
         ),
         onPressed: () {
           HapticFeedback.selectionClick();
