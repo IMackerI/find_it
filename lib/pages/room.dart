@@ -353,7 +353,7 @@ class _RoomPageState extends State<RoomPage> {
                           ),
                           TextButton(
                           child: Text('Delete'),
-                          onPressed: () {
+                          onPressed: () async {
                             setState(() {
                               if(selectedIsRoom){
                                 currentSpace.mySpaces.remove(selected);
@@ -367,6 +367,7 @@ class _RoomPageState extends State<RoomPage> {
                                 selected = null;
                               }
                             });
+                            await SpaceModel.saveItems();
                             Navigator.of(context).pop();
                           },
                           ),
