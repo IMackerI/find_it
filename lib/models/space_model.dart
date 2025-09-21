@@ -83,8 +83,6 @@ class SpaceModel {
   static Future<void> saveItems() async {
     final file = await _localFile;
     await file.writeAsString(jsonEncode(currentSpaces.map((space) => space.toJson()).toList()));
-    print(jsonEncode(currentSpaces.map((space) => space.toJson()).toList()));
-    print("items saved");
   }
 
   static Future<void> loadItems() async {
@@ -95,7 +93,5 @@ class SpaceModel {
     final contents = await file.readAsString();
     final List<dynamic> jsonData = jsonDecode(contents);
     currentSpaces = jsonData.map((item) => SpaceModel.fromJson(item)).toList();
-    print(jsonData);
-    print("items loaded");
   }
 }

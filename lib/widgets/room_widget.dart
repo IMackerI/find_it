@@ -1,34 +1,31 @@
 import 'package:flutter/material.dart';
-import 'package:find_it/models/space_model.dart';
+
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
 
 import 'drawer_widget.dart';
 
 class RoomWidget extends StatelessWidget {
-  final SpaceModel room;
-  final Function(SpaceModel, bool) onRoomSelected;
-  final Function(Offset) onRoomMoved;
-  final Function(double) onRoomResized;
-  final Function(SpaceModel, bool) onDrawerSelected;
-  final Function(Offset) onDrawerMoved;
-  final Function(double) onDrawerResized;
-  final double size;
-  final Matrix4 transform;
-  bool isEditMode;
-
-  final GlobalKey _stackKey = GlobalKey();
-
   RoomWidget({
     required this.room,
     required this.onRoomSelected,
     required this.onRoomMoved,
-    required this.onRoomResized,
     required this.onDrawerSelected,
     required this.onDrawerMoved,
-    required this.onDrawerResized,
     required this.size,
-    required this.transform,
     required this.isEditMode,
+    super.key,
   });
+
+  final SpaceModel room;
+  final void Function(SpaceModel, bool) onRoomSelected;
+  final void Function(Offset) onRoomMoved;
+  final void Function(SpaceModel, bool) onDrawerSelected;
+  final void Function(Offset) onDrawerMoved;
+  final double size;
+  final bool isEditMode;
+
+  final GlobalKey _stackKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -40,77 +37,91 @@ class RoomWidget extends StatelessWidget {
         children: [
           LongPressDraggable<SpaceModel>(
             data: room,
-            feedback: isEditMode ? Transform(
-              transform: Matrix4.identity()..scale(size),
-              child: visualDraggingRoom(context),
-            ) : Container(),
-            childWhenDragging: isEditMode ? Container() : null,
+            feedback: isEditMode
+                ? Transform(
+                    transform: Matrix4.identity()..scale(size),
+                    child: _buildRoom(context, dragging: true),
+                  )
+                : const SizedBox.shrink(),
+            childWhenDragging: isEditMode ? const SizedBox.shrink() : null,
             onDragEnd: (details) {
-              if(isEditMode) onRoomMoved(details.offset);
+              if (isEditMode) {
+                onRoomMoved(details.offset);
+              }
             },
             child: GestureDetector(
               onTap: () => onRoomSelected(room, true),
-              child: visualRoom(),
+              child: _buildRoom(context),
             ),
           ),
           ...room.mySpaces.map((drawer) {
             return DrawerWidget(
               drawer: drawer,
               onDrawerSelected: onDrawerSelected,
-              onDrawerMoved: (offset){
+              onDrawerMoved: (offset) {
                 onDrawerSelected(drawer, false);
-                RenderBox stackBox = _stackKey.currentContext!.findRenderObject() as RenderBox;
-                Offset localPosition = stackBox.globalToLocal(offset);
-                onDrawerMoved(localPosition);
+                final renderBox = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+                if (renderBox != null) {
+                  final localOffset = renderBox.globalToLocal(offset);
+                  onDrawerMoved(localOffset);
+                }
               },
-              onDrawerResized: onDrawerResized,
               size: size,
               isEditMode: isEditMode,
             );
-          }).toList(),
+          }),
         ],
       ),
     );
   }
 
-  Container visualRoom() {
-    return Container(
-      width: room.size.width,
-      height: room.size.height,
-      decoration: room.isSelected ?
-      BoxDecoration(
-      color: Color(0xFF0606c38).withOpacity(0.3),
-      borderRadius: BorderRadius.circular(5),
-      border: Border.all(
-        color: Color(0xFFbc6c25),
-        width: 1.0,
-      ),
-      ) :
-        BoxDecoration(
-        color: Color(0xFFdda15e).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
-        ),
-      ),
-      child: Center(child: Text(room.name)),
-    );
-  }
+  Widget _buildRoom(BuildContext context, {bool dragging = false}) {
+    final theme = Theme.of(context);
+    final palette = theme.extension<AppPalette>()!;
+    final colorScheme = theme.colorScheme;
 
-  Container visualDraggingRoom(BuildContext context) {
-    return Container(
+    final isSelected = room.isSelected && !dragging;
+    final baseColor = dragging
+        ? palette.surfaceTint
+        : isSelected
+            ? colorScheme.primary.withOpacity(0.18)
+            : palette.surfaceTint.withOpacity(0.9);
+    final borderColor = dragging
+        ? palette.outlineMuted
+        : isSelected
+            ? colorScheme.primary
+            : palette.outlineMuted;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       width: room.size.width,
       height: room.size.height,
       decoration: BoxDecoration(
-        color: Color(0xFFa3b18a).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(5),
+        color: baseColor,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
+          color: borderColor,
+          width: isSelected ? 1.6 : 1.1,
+        ),
+        boxShadow: isSelected
+            ? [
+                BoxShadow(
+                  color: colorScheme.primary.withOpacity(0.18),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ]
+            : null,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        room.name,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: colorScheme.onSurface,
         ),
       ),
-      child: Center(child: Text(room.name, style: Theme.of(context).textTheme.bodyMedium)),
     );
   }
 }

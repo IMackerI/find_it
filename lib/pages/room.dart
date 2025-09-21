@@ -1,31 +1,31 @@
 import 'dart:io';
-import 'dart:math';
 
-import 'package:find_it/colors.dart';
-import 'package:find_it/models/item_model.dart';
-import 'package:find_it/pages/item.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/svg.dart';
 
-import 'package:find_it/models/space_model.dart';
-import 'package:find_it/widgets/room_widget.dart';
+import '../models/item_model.dart';
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
+import '../utils/haptics.dart';
+import '../widgets/room_widget.dart';
+import 'item.dart';
 
 class RoomPage extends StatefulWidget {
+  const RoomPage({super.key, required this.curSpace});
+
   final SpaceModel curSpace;
 
-  RoomPage({super.key, required this.curSpace});
-
   @override
-  _RoomPageState createState() => _RoomPageState();
+  State<RoomPage> createState() => _RoomPageState();
 }
 
 class _RoomPageState extends State<RoomPage> {
   SpaceModel get currentSpace => widget.curSpace;
-  dynamic selected;
-  String selectedName = '';
-  bool selectedIsRoom = false;
-  bool _isEditMode = false;  // Mode state variable
-  
+
+  SpaceModel? _selectedSpace;
+  bool _selectedIsRoom = false;
+  String _selectedLabel = '';
+  bool _isEditMode = false;
+
   final GlobalKey _stackKey = GlobalKey();
   late final TransformationController _controller = TransformationController();
 
@@ -37,60 +37,105 @@ class _RoomPageState extends State<RoomPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = theme.extension<AppPalette>()!;
+    final gradientColors = palette.primaryGradient.colors;
+
     return Scaffold(
-      appBar: appBar(),
-      body: Stack(
-        children: [
-            draggableRooms(context),
-            Positioned(
-              right: 0,
-              top: 0,
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      _isEditMode ? 'Edit Mode' : 'Item Mode',
-                      style: TextStyle(color: AppColors.textPrimary),
-                    ),
-                  ),
-                  SizedBox(width: 10,),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10, right: 20),
-                    child: Transform.scale(
-                      scale: 1.5,
-                      child: Switch(
-                        value: _isEditMode,
-                        onChanged: (value) {
-                          setState(() {
-                            _isEditMode = value;
-                          });
-                        },
-                        activeTrackColor: AppColors.primary,
-                        inactiveTrackColor: AppColors.secondary,
-                        activeColor: AppColors.iconBackground,
-                        inactiveThumbColor: AppColors.iconBackground,
-                        thumbIcon: WidgetStateProperty.resolveWith<Icon?>((Set<WidgetState> states) {
-                          if (_isEditMode) {
-                              return const Icon(Icons.edit, color: AppColors.iconColor);
-                          } else {
-                            return const Icon(Icons.interests, color: AppColors.iconColor);
-                          }
-                        }),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+      appBar: _buildAppBar(theme),
+      body: SafeArea(
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment.topLeft,
+              radius: 2.4,
+              colors: [
+                gradientColors.first.withOpacity(0.1),
+                theme.colorScheme.background,
+              ],
             ),
-          (_isEditMode && selected != null) ? optionsBar() : Container(),
-          (!_isEditMode && selected != null) ? itemsBar() : Container(),
-        ],
+          ),
+          child: Stack(
+            children: [
+              Positioned.fill(child: _buildCanvas(theme, palette)),
+              Positioned(
+                right: 16,
+                top: 16,
+                child: _ModeToggleCard(
+                  value: _isEditMode,
+                  theme: theme,
+                  onChanged: (value) async {
+                    await AppHaptics.selection();
+                    setState(() => _isEditMode = value);
+                  },
+                ),
+              ),
+              if (_isEditMode && _selectedSpace != null)
+                _OptionsSheet(
+                  selectedName: _selectedLabel,
+                  isRoom: _selectedIsRoom,
+                  size: _selectedSpace!.size,
+                  onRename: _renameSelected,
+                  onDelete: _deleteSelected,
+                  onWidthChanged: _onWidthChanged,
+                  onHeightChanged: _onHeightChanged,
+                  onAddDrawer: _addDrawer,
+                  theme: theme,
+                  palette: palette,
+                ),
+              if (!_isEditMode && _selectedSpace != null)
+                _ItemsSheet(
+                  space: _selectedSpace!,
+                  selectedLabel: _selectedLabel,
+                  onAddItem: _addItemToSelected,
+                  onDeleteItem: _deleteItem,
+                  onOpenItem: _openItem,
+                  theme: theme,
+                  palette: palette,
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  InteractiveViewer draggableRooms(BuildContext context) {
+  AppBar _buildAppBar(ThemeData theme) {
+    return AppBar(
+      title: Text(widget.curSpace.name),
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_rounded),
+        onPressed: () async {
+          await AppHaptics.selection();
+          if (!mounted) return;
+          Navigator.of(context).pop();
+          await SpaceModel.saveItems();
+        },
+      ),
+      actions: [
+        IconButton(
+          tooltip: 'Save layout',
+          icon: const Icon(Icons.save_alt_rounded),
+          onPressed: () async {
+            await AppHaptics.selection();
+            await SpaceModel.saveItems();
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Spaces saved successfully')),
+            );
+          },
+        ),
+        if (_isEditMode)
+          IconButton(
+            tooltip: 'Add room',
+            icon: const Icon(Icons.add_rounded),
+            onPressed: _addRoom,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCanvas(ThemeData theme, AppPalette palette) {
     return InteractiveViewer(
       panEnabled: true,
       scaleEnabled: true,
@@ -98,46 +143,43 @@ class _RoomPageState extends State<RoomPage> {
       minScale: 0.1,
       maxScale: 20.0,
       transformationController: _controller,
-      onInteractionEnd: (details){
+      onInteractionEnd: (_) {
         setState(() {
-          if(selected != null){
-            selected!.isSelected = false;
-          }
-          selected = null;
+          _selectedSpace?.isSelected = false;
+          _selectedSpace = null;
         });
       },
       child: Container(
+        key: _stackKey,
         height: MediaQuery.of(context).size.height * 1.5,
         width: MediaQuery.of(context).size.width * 2,
         decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.center,
-            radius: 3,
+          borderRadius: BorderRadius.circular(32),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: [
-              AppColors.background,
-              Colors.black,
+              palette.surfaceTint,
+              theme.colorScheme.surface,
             ],
-            stops: [0.1, 1.0],
           ),
         ),
-        key: _stackKey,
         child: Stack(
           children: currentSpace.mySpaces.map((room) {
             return RoomWidget(
               room: room,
               onRoomSelected: _onSelected,
-              onRoomMoved: (offset){
+              onRoomMoved: (offset) {
                 _onSelected(room, true);
-                RenderBox stackBox = _stackKey.currentContext!.findRenderObject() as RenderBox;
-                Offset localPosition = stackBox.globalToLocal(offset);
-                _onMoved(localPosition);
+                final renderBox = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+                if (renderBox != null) {
+                  final localOffset = renderBox.globalToLocal(offset);
+                  _onMoved(localOffset);
+                }
               },
-              onRoomResized: _onResized,
-              size: _controller.value.getMaxScaleOnAxis(),
-              transform: _controller.value,
               onDrawerSelected: _onSelected,
               onDrawerMoved: _onMoved,
-              onDrawerResized: _onResized,
+              size: _controller.value.getMaxScaleOnAxis(),
               isEditMode: _isEditMode,
             );
           }).toList(),
@@ -146,482 +188,691 @@ class _RoomPageState extends State<RoomPage> {
     );
   }
 
-  Widget itemsBar() {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.3,
-      minChildSize: 0.3,
-      maxChildSize: 0.8,
-      builder: (context, scrollController) => Container(
-        color: AppColors.secondary,
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    'Items in $selectedName ${selected?.name}',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
-                    ),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () async {
-                    ItemModel newItem = ItemModel(name: '', description: '');
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ItemDisplayPage(item: newItem),
-                      ),
-                    );
-                    if (newItem.name.isNotEmpty) {
-                      setState(() {
-                        selected!.items = List<ItemModel>.from(selected!.items)..add(newItem);
-                      });
-                    }
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.all(10),
-                    width: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.iconBackground,
-                      borderRadius: BorderRadius.circular(10)
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.add,
-                      color: AppColors.iconColor,
-                    ),
-                  ),
-                )
-              ],
+  Future<void> _addRoom() async {
+    await AppHaptics.selection();
+    final controller = TextEditingController();
+    final roomName = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Add a new room'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Room name'),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
             ),
-            Expanded(
-              child: ListView.builder(
-                controller: scrollController,
-                itemCount: selected?.items.length ?? 0,
-                itemBuilder: itemBarEntry,
+            FilledButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop(controller.text.trim());
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (roomName != null && roomName.isNotEmpty) {
+      setState(() {
+        currentSpace.mySpaces = List.from(currentSpace.mySpaces)
+          ..add(
+            SpaceModel(
+              name: roomName,
+              position: Offset(
+                MediaQuery.of(context).size.width / 3,
+                MediaQuery.of(context).size.height / 3,
               ),
+              size: const Size(160, 140),
+            ),
+          );
+      });
+      await SpaceModel.saveItems();
+    }
+  }
+
+  Future<void> _addDrawer() async {
+    if (!_selectedIsRoom || _selectedSpace == null) return;
+    await AppHaptics.selection();
+    final controller = TextEditingController();
+    final drawerName = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Add a new drawer'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Drawer name'),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop(controller.text.trim());
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (drawerName != null && drawerName.isNotEmpty) {
+      setState(() {
+        _selectedSpace!.mySpaces = List<SpaceModel>.from(_selectedSpace!.mySpaces)
+          ..add(
+            SpaceModel(
+              name: drawerName,
+              position: const Offset(0, 0),
+              size: const Size(120, 80),
+              parent: _selectedSpace,
+            ),
+          );
+      });
+      await SpaceModel.saveItems();
+    }
+  }
+
+  Future<void> _renameSelected() async {
+    if (_selectedSpace == null) return;
+    await AppHaptics.selection();
+    final controller = TextEditingController(text: _selectedSpace!.name);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Rename $_selectedLabel'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(labelText: 'New $_selectedLabel name'),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop(controller.text.trim());
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (newName != null && newName.isNotEmpty) {
+      setState(() {
+        _selectedSpace!.name = newName;
+      });
+      await SpaceModel.saveItems();
+    }
+  }
+
+  Future<void> _deleteSelected() async {
+    if (_selectedSpace == null) return;
+    await AppHaptics.selection();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Delete $_selectedLabel?'),
+          content: Text('Are you sure you want to delete this $_selectedLabel?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton.tonal(
+              onPressed: () {
+                AppHaptics.heavyImpact();
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      setState(() {
+        if (_selectedIsRoom) {
+          currentSpace.mySpaces.remove(_selectedSpace);
+        } else {
+          _selectedSpace!.parent?.mySpaces.remove(_selectedSpace);
+        }
+        _selectedSpace = null;
+      });
+      await SpaceModel.saveItems();
+    }
+  }
+
+  Future<void> _addItemToSelected() async {
+    if (_selectedSpace == null) return;
+    await AppHaptics.selection();
+    final newItem = ItemModel(name: '', description: '');
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ItemDisplayPage(item: newItem),
+      ),
+    );
+    if (result == true && newItem.name.isNotEmpty) {
+      setState(() {
+        newItem.parent = _selectedSpace;
+        _selectedSpace!.items = List<ItemModel>.from(_selectedSpace!.items)..add(newItem);
+      });
+      await SpaceModel.saveItems();
+    }
+  }
+
+  Future<void> _deleteItem(ItemModel item) async {
+    await AppHaptics.selection();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete item'),
+          content: const Text('Are you sure you want to delete this item?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton.tonal(
+              onPressed: () {
+                AppHaptics.heavyImpact();
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true && _selectedSpace != null) {
+      setState(() {
+        _selectedSpace!.items.remove(item);
+      });
+      await SpaceModel.saveItems();
+    }
+  }
+
+  Future<void> _openItem(ItemModel item) async {
+    await AppHaptics.selection();
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ItemDisplayPage(item: item),
+      ),
+    );
+    if (result == true) {
+      setState(() {});
+    }
+  }
+
+  void _onSelected(SpaceModel space, bool isRoom) {
+    setState(() {
+      _selectedLabel = isRoom ? 'room' : 'drawer';
+      _selectedIsRoom = isRoom;
+      _selectedSpace = space;
+      currentSpace.mySpaces.forEach((room) => room.isSelected = false);
+      for (final room in currentSpace.mySpaces) {
+        room.mySpaces.forEach((drawer) => drawer.isSelected = false);
+      }
+      space.isSelected = true;
+    });
+  }
+
+  void _onMoved(Offset offset) {
+    if (_selectedSpace == null) return;
+    setState(() {
+      _selectedSpace!.position = offset;
+    });
+  }
+
+  void _onWidthChanged(double width) {
+    if (_selectedSpace == null) return;
+    setState(() {
+      _selectedSpace!.size = Size(width, _selectedSpace!.size.height);
+    });
+  }
+
+  void _onHeightChanged(double height) {
+    if (_selectedSpace == null) return;
+    setState(() {
+      _selectedSpace!.size = Size(_selectedSpace!.size.width, height);
+    });
+  }
+}
+
+class _ModeToggleCard extends StatelessWidget {
+  const _ModeToggleCard({
+    required this.value,
+    required this.theme,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final ThemeData theme;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              value ? Icons.edit_rounded : Icons.interests_rounded,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            Text(
+              value ? 'Edit mode' : 'Item mode',
+              style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(width: 12),
+            Switch.adaptive(
+              value: value,
+              onChanged: onChanged,
+              activeColor: theme.colorScheme.onPrimary,
+              activeTrackColor: theme.colorScheme.primary,
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget? itemBarEntry(context, index) {
-    final item = selected!.items[index];
-    return ListTile(
-      title: Text(item.name),
-      leading: CircleAvatar(
-        child: item.imagePath == null ? ItemModel.defaultIcons[Random().nextInt(ItemModel.defaultIcons.length)] : null,
-        backgroundImage: item.imagePath != null ? FileImage(File(item.imagePath!)) : null,
-        backgroundColor: AppColors.iconBackground,
-      ),
-      trailing: GestureDetector(
-        onTap: () async {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-              title: Text('Are you sure?'),
-              content: Text('Do you want to delete this object?'),
-              actions: [
-                TextButton(
-                child: Text('Cancel'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                ),
-                TextButton(
-                child: Text('Delete'),
-                onPressed: () {
-                  setState(() {
-                    selected!.items.remove(item);
-                  });
-                  SpaceModel.saveItems();
-                  Navigator.of(context).pop();
-                },
-                ),
-              ],
-              );
-            },
-          );
-        },
-        child: Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
+class _ItemsSheet extends StatelessWidget {
+  const _ItemsSheet({
+    required this.space,
+    required this.selectedLabel,
+    required this.onAddItem,
+    required this.onDeleteItem,
+    required this.onOpenItem,
+    required this.theme,
+    required this.palette,
+  });
+
+  final SpaceModel space;
+  final String selectedLabel;
+  final VoidCallback onAddItem;
+  final void Function(ItemModel) onDeleteItem;
+  final void Function(ItemModel) onOpenItem;
+  final ThemeData theme;
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.28,
+      minChildSize: 0.25,
+      maxChildSize: 0.75,
+      builder: (context, controller) {
+        return Container(
           decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
+            color: palette.elevatedSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 20,
+                offset: const Offset(0, -8),
+              ),
+            ],
           ),
-          alignment: Alignment.center,
-          child: const Icon(
-            Icons.delete,
-            color: AppColors.iconColor,
-          ),
-        ),
-      ),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ItemDisplayPage(item: item),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 48,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: palette.outlineMuted,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Items in $selectedLabel',
+                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${space.items.length} item${space.items.length == 1 ? '' : 's'} available',
+                            style: theme.textTheme.bodySmall?.copyWith(color: palette.mutedForeground),
+                          ),
+                        ],
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: onAddItem,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: space.items.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No items yet',
+                          style: theme.textTheme.bodyMedium?.copyWith(color: palette.mutedForeground),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: controller,
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                        itemBuilder: (context, index) {
+                          final item = space.items[index];
+                          return _ItemTile(
+                            item: item,
+                            theme: theme,
+                            palette: palette,
+                            onOpen: () => onOpenItem(item),
+                            onDelete: () => onDeleteItem(item),
+                          );
+                        },
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemCount: space.items.length,
+                      ),
+              ),
+            ],
           ),
         );
       },
     );
   }
+}
 
-  Positioned optionsBar() {
+class _OptionsSheet extends StatelessWidget {
+  const _OptionsSheet({
+    required this.selectedName,
+    required this.isRoom,
+    required this.size,
+    required this.onRename,
+    required this.onDelete,
+    required this.onWidthChanged,
+    required this.onHeightChanged,
+    required this.onAddDrawer,
+    required this.theme,
+    required this.palette,
+  });
+
+  final String selectedName;
+  final bool isRoom;
+  final Size size;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+  final ValueChanged<double> onWidthChanged;
+  final ValueChanged<double> onHeightChanged;
+  final VoidCallback onAddDrawer;
+  final ThemeData theme;
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
     return Positioned(
       left: 0,
       right: 0,
       bottom: 0,
       child: Container(
-        color: AppColors.secondary,
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+        decoration: BoxDecoration(
+          color: palette.elevatedSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 24,
+              offset: const Offset(0, -12),
+            ),
+          ],
+        ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '$selectedName options',
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
+            Center(
+              child: Container(
+                width: 48,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: palette.outlineMuted,
+                  borderRadius: BorderRadius.circular(4),
+                ),
               ),
             ),
-            const SizedBox(height: 10,),
+            const SizedBox(height: 16),
             Text(
-              'Change width of the $selectedName:',
-                style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold
-              ),
+              '${selectedName[0].toUpperCase()}${selectedName.substring(1)} options',
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
-            Slider(
-              value: selected!.size.width,
-              min: selectedIsRoom ? 50 : 10,
-              max: selectedIsRoom ? 300 : 100,
-              onChanged: (value) {
-                _onWidthChanged(value);
-              },
-              activeColor: AppColors.primary,
-              inactiveColor: AppColors.iconBackground,
+            const SizedBox(height: 12),
+            _buildSlider(
+              context,
+              label: 'Width',
+              value: size.width,
+              min: isRoom ? 80 : 40,
+              max: isRoom ? 420 : 200,
+              onChanged: onWidthChanged,
             ),
-            Text(
-              'Change height of the $selectedName:',
-                style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold
-              ),
+            const SizedBox(height: 12),
+            _buildSlider(
+              context,
+              label: 'Height',
+              value: size.height,
+              min: isRoom ? 80 : 40,
+              max: isRoom ? 420 : 200,
+              onChanged: onHeightChanged,
             ),
-            Slider(
-              value: selected!.size.height,
-              min: selectedIsRoom ? 50 : 10,
-              max: selectedIsRoom ? 300 : 100,
-              onChanged: (value) {
-                _onHeightChanged(value);
-              },
-              activeColor: AppColors.primary,
-              inactiveColor: AppColors.iconBackground,
-            ),
+            const SizedBox(height: 12),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  margin: const EdgeInsets.all(10),
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.iconBackground,
-                    borderRadius: BorderRadius.circular(10)
-                  ),
-                  alignment: Alignment.center,
-                    child: IconButton(
-                    icon: Icon(Icons.delete, color: AppColors.iconColor),
-                    onPressed: () {
-                      showDialog(
-                      context: context,
-                      builder: (BuildContext context) {
-                        return AlertDialog(
-                        title: Text('Are you sure?'),
-                        content: Text('Do you want to delete this $selectedName?'),
-                        actions: [
-                          TextButton(
-                          child: Text('Cancel'),
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                          },
-                          ),
-                          TextButton(
-                          child: Text('Delete'),
-                          onPressed: () async {
-                            setState(() {
-                              if(selectedIsRoom){
-                                currentSpace.mySpaces.remove(selected);
-                                selected = null;
-                              }
-                              else{
-                                if(selected!.parent == null){
-                                  currentSpace.mySpaces.forEach((room) {room.assignParents();});
-                                }
-                                selected!.parent!.mySpaces.remove(selected);
-                                selected = null;
-                              }
-                            });
-                            await SpaceModel.saveItems();
-                            Navigator.of(context).pop();
-                          },
-                          ),
-                        ],
-                        );
-                      },
-                      );
-                    },
-                    ),
-                ),
-                Container(
-                  margin: const EdgeInsets.all(10),
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.iconBackground,
-                    borderRadius: BorderRadius.circular(10)
-                  ),
-                  alignment: Alignment.center,
-                  child: IconButton(
-                    icon: Icon(Icons.edit, color: AppColors.iconColor),
-                    onPressed: () {
-                      _renameSelected();
-                    },
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onRename,
+                    icon: const Icon(Icons.drive_file_rename_outline_rounded),
+                    label: const Text('Rename'),
                   ),
                 ),
-                selectedIsRoom ? Container(
-                  margin: const EdgeInsets.all(10),
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.iconBackground,
-                    borderRadius: BorderRadius.circular(10)
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text('Delete'),
                   ),
-                  alignment: Alignment.center,
-                  child: IconButton(
-                    icon: Icon(Icons.add, color: AppColors.iconColor),
-                    onPressed: () {
-                      _addDrawer();
-                    },
-                  ),
-                ) : Container(),
+                ),
               ],
             ),
+            if (isRoom) ...[
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: onAddDrawer,
+                icon: const Icon(Icons.add_box_rounded),
+                label: const Text('Add drawer'),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  void _addDrawer() async {
-    String? drawerName = await showDialog<String>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Add a new drawer'),
-          content: TextField(
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Drawer name',
-            ),
-            onSubmitted: (value) {
-              Navigator.of(context).pop(value);
-            },
+  Widget _buildSlider(
+    BuildContext context, {
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    final palette = theme.extension<AppPalette>()!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            activeTrackColor: theme.colorScheme.primary,
+            inactiveTrackColor: palette.outlineMuted,
+            thumbColor: theme.colorScheme.primary,
           ),
-        );
-      },
-    );
-    if (drawerName != null && drawerName.isNotEmpty) {
-      setState(() {
-        selected!.mySpaces = (List<SpaceModel>.from(selected!.mySpaces)
-          ..add(
-            SpaceModel(
-              name: drawerName,
-              position: Offset(0, 0),
-              size: const Size(20, 20),
-            ) ,
-          ));
-      });
-    }
-  }
-
-  void _renameSelected() async {
-    String? newName = await showDialog<String>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Rename $selectedName'),
-          content: TextField(
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: 'New $selectedName name',
-            ),
-            onSubmitted: (value) {
-              Navigator.of(context).pop(value);
-            },
-          ),
-        );
-      },
-    );
-    if (newName != null && newName.isNotEmpty) {
-      setState(() {
-        selected!.name = newName;
-      });
-    }
-  }
-
-  AppBar appBar() {
-    return AppBar(
-      title: Text(
-        currentSpace.name,
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.bold
-        ),
-      ),
-      centerTitle: true,
-      backgroundColor: AppColors.primary,
-      elevation: 0,
-      leading: GestureDetector(
-        onTap: () {
-          Navigator.of(context).pop();
-          SpaceModel.saveItems();
-        },
-        child: Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
-          ),
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: SvgPicture.asset('assets/icons/Arrow - Left 2.svg'),
+          child: Slider(
+            value: value.clamp(min, max).toDouble(),
+            min: min,
+            max: max,
+            onChanged: onChanged,
           ),
         ),
-      ),
-      actions: [
-        Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
-          ),
-          alignment: Alignment.center,
-          child: IconButton(
-            icon: Icon(Icons.save, color: AppColors.iconColor),
-            onPressed: () {
-              SpaceModel.saveItems();
-            },
-          ),
-        ),
-        _isEditMode ? GestureDetector(
-          onTap: () async {
-            String? roomName = await showDialog<String>(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: const Text('Add a new room'),
-                  content: TextField(
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Room name',
-                    ),
-                    onSubmitted: (value) {
-                      Navigator.of(context).pop(value);
-                    },
-                  ),
-                );
-              },
-            );
-            if (roomName != null && roomName.isNotEmpty) {
-              setState(() {
-                currentSpace.mySpaces = List.from(currentSpace.mySpaces)
-                  ..add(
-                    SpaceModel(
-                      name: roomName,
-                        position: Offset(
-                        MediaQuery.of(context).size.width - 200,
-                        MediaQuery.of(context).size.height - 400,
-                        ),
-                      size: const Size(100, 100),
-                    ),
-                  );
-              });
-            }
-          },
-          child: Container(
-            margin: const EdgeInsets.all(10),
-            width: 40,
-            decoration: BoxDecoration(
-              color: AppColors.iconBackground,
-              borderRadius: BorderRadius.circular(10)
-            ),
-            alignment: Alignment.center,
-            child: const Icon(
-              Icons.add,
-              color: AppColors.iconColor,
-            ),
-          ),
-        ) : Container(),
       ],
     );
   }
+}
 
-  void _onSelected(SpaceModel room, bool isRoom) {
-    setState(() {
-      selectedName = isRoom ? 'room' : 'drawer';
-      selectedIsRoom = isRoom;
-      selected = room;
-      currentSpace.mySpaces.forEach((r) => r.isSelected = false);
-      for (var room in currentSpace.mySpaces) {
-        room.mySpaces.forEach((d) => d.isSelected = false);
-      }
-      room.isSelected = true;
-    });
+class _ItemTile extends StatelessWidget {
+  const _ItemTile({
+    required this.item,
+    required this.theme,
+    required this.palette,
+    required this.onOpen,
+    required this.onDelete,
+  });
+
+  final ItemModel item;
+  final ThemeData theme;
+  final AppPalette palette;
+  final VoidCallback onOpen;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: palette.surfaceTint,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              _buildAvatar(),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    if (item.description.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          item.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(color: palette.mutedForeground),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded),
+                color: theme.colorScheme.error,
+                onPressed: onDelete,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
-  void _onMoved(Offset offset) {
-    setState(() {
-      if (selected != null) {
-        selected!.position = offset;
+  Widget _buildAvatar() {
+    const double size = 52;
+    if (item.imagePath != null && item.imagePath!.isNotEmpty) {
+      final file = File(item.imagePath!);
+      if (file.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Image.file(
+            file,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+          ),
+        );
       }
-    });
-  }
+    }
 
-  void _onResized(double size) {
-    setState(() {
-      if (selected != null) {
-        selected!.size = Size(size, size);
-      }
-    });
-  }
+    final iconIndex = item.name.isEmpty
+        ? 0
+        : item.name.hashCode.abs() % ItemModel.defaultIcons.length;
+    final iconData = ItemModel.defaultIcons[iconIndex];
 
-  void _onHeightChanged(double height) {
-    setState(() {
-      if (selected != null) {
-        selected!.size = Size(selected!.size.width, height);
-      }
-    });
-  }
-
-  void _onWidthChanged(double width) {
-    setState(() {
-      if (selected != null) {
-        selected!.size = Size(width, selected!.size.height);
-      }
-    });
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: palette.primaryGradient,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Icon(iconData, color: theme.colorScheme.onPrimary),
+    );
   }
 }

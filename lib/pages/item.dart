@@ -1,29 +1,29 @@
 import 'dart:io';
 
-import 'package:find_it/colors.dart';
 import 'package:flutter/material.dart';
-import 'package:find_it/models/item_model.dart';
-import 'package:find_it/models/space_model.dart';
-import 'package:flutter/widgets.dart';
-import 'package:flutter_svg/svg.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../models/item_model.dart';
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
+import '../utils/haptics.dart';
+
 class ItemDisplayPage extends StatefulWidget {
+  const ItemDisplayPage({super.key, required this.item});
+
   final ItemModel item;
 
-  ItemDisplayPage({Key? key, required this.item}) : super(key: key);
-
   @override
-  _ItemDisplayPageState createState() => _ItemDisplayPageState();
+  State<ItemDisplayPage> createState() => _ItemDisplayPageState();
 }
 
 class _ItemDisplayPageState extends State<ItemDisplayPage> {
-  late TextEditingController _nameController;
-  late TextEditingController _descriptionController;
-  late TextEditingController _locationController;
+  late final TextEditingController _nameController;
+  late final TextEditingController _descriptionController;
+  late final TextEditingController _locationController;
 
   String? _imagePath;
-  SpaceModel? parentSpace;
+  SpaceModel? _parentSpace;
 
   @override
   void initState() {
@@ -32,7 +32,7 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
     _descriptionController = TextEditingController(text: widget.item.description);
     _locationController = TextEditingController(text: widget.item.locationSpecification);
     _imagePath = widget.item.imagePath;
-    parentSpace = widget.item.parent;
+    _parentSpace = widget.item.parent;
   }
 
   @override
@@ -43,7 +43,10 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
     super.dispose();
   }
 
+  bool get _hasImage => _imagePath != null && _imagePath!.isNotEmpty;
+
   Future<void> _pickImage() async {
+    await AppHaptics.selection();
     final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
       setState(() {
@@ -54,156 +57,200 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: appBar(context),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ListView(
-          children: [
-            GestureDetector(
-              onTap: _pickImage,
-              child: Container(
-                height: 200,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  image: DecorationImage(
-                    image: _imagePath != null ? FileImage(File(_imagePath!)) : AssetImage('assets/icons/dots.svg') as ImageProvider,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                child: _imagePath == null
-                      ? Icon(
-                          Icons.add_a_photo,
-                          color: Colors.black,
-                          size: 50,
-                        )
-                      : null,
-              ),
-            ),
-            SizedBox(height: 16),
-            _buildTextField('Name', _nameController),
-            SizedBox(height: 16),
-            _buildTextField('Description', _descriptionController, maxLines: 3),
-            SizedBox(height: 16),
-            _buildTextField('Location', _locationController),
-            SizedBox(height: 48),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  widget.item.name = _nameController.text;
-                  widget.item.description = _descriptionController.text;
-                  widget.item.locationSpecification = _locationController.text;
-                  widget.item.imagePath = _imagePath;
-                });
-                SpaceModel.saveItems();
-                Navigator.pop(context, true);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondary,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text('Submit Changes', style: TextStyle(color: AppColors.textPrimary)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+    final theme = Theme.of(context);
+    final palette = theme.extension<AppPalette>()!;
 
-  AppBar appBar(BuildContext context) {
-    return AppBar(
-      title: const Text(
-        'Item Details',
-        style: TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.bold
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Item details'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () async {
+            await AppHaptics.selection();
+            if (!mounted) return;
+            Navigator.of(context).pop();
+            await SpaceModel.saveItems();
+          },
         ),
-      ),
-      centerTitle: true,
-      backgroundColor: AppColors.primary,
-      leading: GestureDetector(
-        onTap: () {
-          Navigator.of(context).pop();
-          SpaceModel.saveItems();
-        },
-        child: Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline_rounded),
+            onPressed: _confirmDelete,
           ),
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: SvgPicture.asset('assets/icons/Arrow - Left 2.svg'),
-          ),
-        ),
+        ],
       ),
-      actions: [
-        GestureDetector(
-          onTap: () async {
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                title: Text('Are you sure?'),
-                content: Text('Do you want to delete this object?'),
-                actions: [
-                  TextButton(
-                  child: Text('Cancel'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  ),
-                  TextButton(
-                  child: Text('Delete'),
-                  onPressed: () {
-                    setState(() {
-                      parentSpace!.items.remove(widget.item);
-                    });
-                    SpaceModel.saveItems();
-                    Navigator.of(context).pop();
-                    Navigator.of(context).pop(true);
-                  },
-                  ),
-                ],
-                );
-              },
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const maxWidth = 620.0;
+            final horizontalPadding = constraints.maxWidth > maxWidth
+                ? (constraints.maxWidth - maxWidth) / 2
+                : 20.0;
+
+            return ListView(
+              padding: EdgeInsets.fromLTRB(horizontalPadding, 24, horizontalPadding, 32),
+              children: [
+                _ImagePicker(
+                  hasImage: _hasImage,
+                  imagePath: _imagePath,
+                  onTap: _pickImage,
+                  theme: theme,
+                  palette: palette,
+                ),
+                const SizedBox(height: 24),
+                _buildTextField('Name', _nameController, theme),
+                const SizedBox(height: 16),
+                _buildTextField('Description', _descriptionController, theme, maxLines: 3),
+                const SizedBox(height: 16),
+                _buildTextField('Location notes', _locationController, theme),
+                const SizedBox(height: 32),
+                FilledButton(
+                  onPressed: _saveChanges,
+                  child: const Text('Save changes'),
+                ),
+              ],
             );
           },
-          child: Container(
-            margin: const EdgeInsets.all(10),
-            width: 40,
-            decoration: BoxDecoration(
-              color: AppColors.iconBackground,
-              borderRadius: BorderRadius.circular(10)
-            ),
-            alignment: Alignment.center,
-            child: const Icon(
-              Icons.delete,
-              color: AppColors.iconColor,
-            ),
-          ),
         ),
-      ]
+      ),
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {int maxLines = 1}) {
+  Widget _buildTextField(
+    String label,
+    TextEditingController controller,
+    ThemeData theme, {
+    int maxLines = 1,
+  }) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
-      onTapOutside: (event) => FocusScope.of(context).unfocus(),
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+      textInputAction: maxLines == 1 ? TextInputAction.done : TextInputAction.newline,
+      decoration: InputDecoration(labelText: label),
+    );
+  }
+
+  Future<void> _saveChanges() async {
+    await AppHaptics.selection();
+    setState(() {
+      widget.item.name = _nameController.text.trim();
+      widget.item.description = _descriptionController.text.trim();
+      widget.item.locationSpecification = _locationController.text.trim().isEmpty
+          ? null
+          : _locationController.text.trim();
+      widget.item.imagePath = _imagePath;
+    });
+    await SpaceModel.saveItems();
+    if (!mounted) return;
+    Navigator.pop(context, true);
+  }
+
+  Future<void> _confirmDelete() async {
+    await AppHaptics.selection();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete item'),
+          content: const Text('Are you sure you want to delete this item?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppHaptics.selection();
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton.tonal(
+              onPressed: () {
+                AppHaptics.heavyImpact();
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      setState(() {
+        _parentSpace?.items.remove(widget.item);
+      });
+      await SpaceModel.saveItems();
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    }
+  }
+}
+
+class _ImagePicker extends StatelessWidget {
+  const _ImagePicker({
+    required this.hasImage,
+    required this.imagePath,
+    required this.onTap,
+    required this.theme,
+    required this.palette,
+  });
+
+  final bool hasImage;
+  final String? imagePath;
+  final VoidCallback onTap;
+  final ThemeData theme;
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 220,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: hasImage
+              ? null
+              : palette.primaryGradient,
+          color: hasImage ? null : theme.colorScheme.surfaceVariant,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 16,
+              offset: const Offset(0, 10),
+            ),
+          ],
         ),
+        child: hasImage
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(28),
+                child: Image.file(
+                  File(imagePath!),
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                ),
+              )
+            : Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add_a_photo_rounded, size: 42, color: theme.colorScheme.onPrimary),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Tap to add a photo',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.onPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Make it easier to recognise this item.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onPrimary.withOpacity(0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
       ),
     );
   }
