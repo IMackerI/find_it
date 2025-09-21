@@ -27,7 +27,13 @@ class _RoomPageState extends State<RoomPage> {
   bool _isEditMode = false;  // Mode state variable
   
   final GlobalKey _stackKey = GlobalKey();
-  TransformationController _controller = TransformationController();
+  late final TransformationController _controller = TransformationController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
