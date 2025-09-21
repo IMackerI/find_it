@@ -11,8 +11,8 @@ class SpaceModel {
   String name;
   bool isSelected = false;
   SpaceModel? parent;
-  List<SpaceModel> mySpaces = [];
-  List<ItemModel> items = [];
+  List<SpaceModel> mySpaces;
+  List<ItemModel> items;
 
   static List<SpaceModel> currentSpaces = [];
 
@@ -20,10 +20,11 @@ class SpaceModel {
     required this.name,
     this.position = Offset.zero,
     this.size = Size.zero,
-    this.mySpaces = const [],
-    this.items = const [],
+    List<SpaceModel>? mySpaces,
+    List<ItemModel>? items,
     this.parent,
-  });
+  })  : mySpaces = List<SpaceModel>.from(mySpaces ?? const []),
+        items = List<ItemModel>.from(items ?? const []);
 
   Map<dynamic, dynamic> toJson() => {
     'name': name,

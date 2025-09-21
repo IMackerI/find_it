@@ -31,6 +31,31 @@ class _RoomPageState extends State<RoomPage> {
   final GlobalKey _stackKey = GlobalKey();
   late final TransformationController _controller = TransformationController();
 
+  Size _normalizedSizeFor(SpaceModel space, {required bool isRoom}) {
+    double clampDimension(double value, double min, double max) {
+      if (value.isNaN || value.isInfinite) {
+        return min;
+      }
+      return value.clamp(min, max).toDouble();
+    }
+
+    final double minDimension = isRoom ? 50 : 10;
+    final double maxWidth = isRoom ? 300 : 150;
+    final double maxHeight = isRoom ? 300 : 150;
+
+    final double width = clampDimension(space.size.width, minDimension, maxWidth);
+    final double height = clampDimension(space.size.height, minDimension, maxHeight);
+
+    return Size(width, height);
+  }
+
+  void _ensureSpaceWithinBounds(SpaceModel space, {required bool isRoom}) {
+    final Size correctedSize = _normalizedSizeFor(space, isRoom: isRoom);
+    if (correctedSize != space.size) {
+      space.size = correctedSize;
+    }
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -128,6 +153,7 @@ class _RoomPageState extends State<RoomPage> {
       );
       newRoom.parent = currentSpace;
       newRoom.isSelected = true;
+      _ensureSpaceWithinBounds(newRoom, isRoom: true);
       currentSpace.mySpaces = List.from(currentSpace.mySpaces)..add(newRoom);
       selected = newRoom;
       selectedName = 'room';
@@ -417,6 +443,11 @@ class _RoomPageState extends State<RoomPage> {
   Widget optionsBar() {
     final theme = Theme.of(context);
     final extras = theme.extension<AppThemeColors>()!;
+    final bool isRoomSelection = selectedIsRoom;
+    final Size normalizedSize = _normalizedSizeFor(selected!, isRoom: isRoomSelection);
+    final double minDimension = isRoomSelection ? 50 : 10;
+    final double maxWidth = isRoomSelection ? 300 : 150;
+    final double maxHeight = isRoomSelection ? 300 : 150;
     final String capitalizedName = selectedName.isEmpty
         ? 'Selection'
         : '${selectedName[0].toUpperCase()}${selectedName.substring(1)}';
@@ -461,9 +492,9 @@ class _RoomPageState extends State<RoomPage> {
             const SizedBox(height: 16),
             Text('Change width:', style: theme.textTheme.bodyMedium),
             Slider(
-              value: selected!.size.width,
-              min: selectedIsRoom ? 50 : 10,
-              max: selectedIsRoom ? 300 : 150,
+              value: normalizedSize.width,
+              min: minDimension,
+              max: maxWidth,
               onChanged: (value) {
                 setState(() {
                   _onWidthChanged(value);
@@ -473,9 +504,9 @@ class _RoomPageState extends State<RoomPage> {
             const SizedBox(height: 12),
             Text('Change height:', style: theme.textTheme.bodyMedium),
             Slider(
-              value: selected!.size.height,
-              min: selectedIsRoom ? 50 : 10,
-              max: selectedIsRoom ? 300 : 150,
+              value: normalizedSize.height,
+              min: minDimension,
+              max: maxHeight,
               onChanged: (value) {
                 setState(() {
                   _onHeightChanged(value);
@@ -591,6 +622,7 @@ class _RoomPageState extends State<RoomPage> {
           size: const Size(20, 20),
         );
         newDrawer.parent = selected;
+        _ensureSpaceWithinBounds(newDrawer, isRoom: false);
         selected!.mySpaces = (List<SpaceModel>.from(selected!.mySpaces)
           ..add(newDrawer));
       });
@@ -685,6 +717,7 @@ class _RoomPageState extends State<RoomPage> {
         }
       }
       room.isSelected = true;
+      _ensureSpaceWithinBounds(room, isRoom: isRoom);
     });
   }
 
