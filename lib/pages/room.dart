@@ -1,19 +1,21 @@
 import 'dart:io';
 import 'dart:math';
 
-import 'package:find_it/colors.dart';
-import 'package:find_it/models/item_model.dart';
-import 'package:find_it/pages/item.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/svg.dart';
 
+import 'package:find_it/models/item_model.dart';
 import 'package:find_it/models/space_model.dart';
+import 'package:find_it/pages/item.dart';
+import 'package:find_it/theme/app_theme.dart';
 import 'package:find_it/widgets/room_widget.dart';
 
 class RoomPage extends StatefulWidget {
   final SpaceModel curSpace;
 
-  RoomPage({super.key, required this.curSpace});
+  const RoomPage({super.key, required this.curSpace});
 
   @override
   _RoomPageState createState() => _RoomPageState();
@@ -24,10 +26,35 @@ class _RoomPageState extends State<RoomPage> {
   dynamic selected;
   String selectedName = '';
   bool selectedIsRoom = false;
-  bool _isEditMode = false;  // Mode state variable
-  
+  bool _isEditMode = false;
+
   final GlobalKey _stackKey = GlobalKey();
   late final TransformationController _controller = TransformationController();
+
+  Size _normalizedSizeFor(SpaceModel space, {required bool isRoom}) {
+    double clampDimension(double value, double min, double max) {
+      if (value.isNaN || value.isInfinite) {
+        return min;
+      }
+      return value.clamp(min, max).toDouble();
+    }
+
+    final double minDimension = isRoom ? 50 : 10;
+    final double maxWidth = isRoom ? 300 : 150;
+    final double maxHeight = isRoom ? 300 : 150;
+
+    final double width = clampDimension(space.size.width, minDimension, maxWidth);
+    final double height = clampDimension(space.size.height, minDimension, maxHeight);
+
+    return Size(width, height);
+  }
+
+  void _ensureSpaceWithinBounds(SpaceModel space, {required bool isRoom}) {
+    final Size correctedSize = _normalizedSizeFor(space, isRoom: isRoom);
+    if (correctedSize != space.size) {
+      space.size = correctedSize;
+    }
+  }
 
   @override
   void dispose() {
@@ -35,62 +62,166 @@ class _RoomPageState extends State<RoomPage> {
     super.dispose();
   }
 
+  Future<void> _showAddRoomDialog() async {
+    HapticFeedback.lightImpact();
+    final controller = TextEditingController();
+    String? errorText;
+
+    final String? roomName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add a new room'),
+              content: TextField(
+                controller: controller,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  labelText: 'Room name',
+                  errorText: errorText,
+                ),
+                onChanged: (value) {
+                  if (errorText != null && value.trim().isNotEmpty) {
+                    setDialogState(() {
+                      errorText = null;
+                    });
+                  }
+                },
+                onSubmitted: (value) {
+                  final trimmed = value.trim();
+                  if (trimmed.isEmpty) {
+                    setDialogState(() {
+                      errorText = 'Enter a room name';
+                    });
+                    return;
+                  }
+                  Navigator.of(dialogContext).pop(trimmed);
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final trimmed = controller.text.trim();
+                    if (trimmed.isEmpty) {
+                      setDialogState(() {
+                        errorText = 'Enter a room name';
+                      });
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(trimmed);
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || roomName == null || roomName.trim().isEmpty) {
+      return;
+    }
+
+    final String trimmedName = roomName.trim();
+    final mediaSize = MediaQuery.of(context).size;
+    const Size defaultRoomSize = Size(120, 120);
+    final Offset startPosition = Offset(
+      (mediaSize.width - defaultRoomSize.width) / 2,
+      (mediaSize.height - defaultRoomSize.height) / 2,
+    );
+
+    setState(() {
+      for (final room in currentSpace.mySpaces) {
+        room.isSelected = false;
+        for (final drawer in room.mySpaces) {
+          drawer.isSelected = false;
+        }
+      }
+      final newRoom = SpaceModel(
+        name: trimmedName,
+        position: startPosition,
+        size: defaultRoomSize,
+      );
+      newRoom.parent = currentSpace;
+      newRoom.isSelected = true;
+      _ensureSpaceWithinBounds(newRoom, isRoom: true);
+      currentSpace.mySpaces = List.from(currentSpace.mySpaces)..add(newRoom);
+      selected = newRoom;
+      selectedName = 'room';
+      selectedIsRoom = true;
+    });
+
+    HapticFeedback.selectionClick();
+
+    await _saveSpacesWithFeedback(
+      failureMessage: 'Room added but saving changes failed.',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: appBar(),
-      body: Stack(
-        children: [
-            draggableRooms(context),
-            Positioned(
-              right: 0,
-              top: 0,
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      _isEditMode ? 'Edit Mode' : 'Item Mode',
-                      style: TextStyle(color: AppColors.textPrimary),
-                    ),
-                  ),
-                  SizedBox(width: 10,),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10, right: 20),
-                    child: Transform.scale(
-                      scale: 1.5,
-                      child: Switch(
-                        value: _isEditMode,
-                        onChanged: (value) {
-                          setState(() {
-                            _isEditMode = value;
-                          });
-                        },
-                        activeTrackColor: AppColors.primary,
-                        inactiveTrackColor: AppColors.secondary,
-                        activeColor: AppColors.iconBackground,
-                        inactiveThumbColor: AppColors.iconBackground,
-                        thumbIcon: WidgetStateProperty.resolveWith<Icon?>((Set<WidgetState> states) {
-                          if (_isEditMode) {
-                              return const Icon(Icons.edit, color: AppColors.iconColor);
-                          } else {
-                            return const Icon(Icons.interests, color: AppColors.iconColor);
-                          }
-                        }),
+      body: Container(
+        decoration: BoxDecoration(gradient: extras.backgroundGradient),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: extras.glassBackground,
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                        color: extras.shadowColor,
+                        blurRadius: 26,
+                        offset: const Offset(0, 18),
+                        spreadRadius: -18,
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: draggableRooms(context),
+                  ),
+                ),
               ),
-            ),
-          (_isEditMode && selected != null) ? optionsBar() : Container(),
-          (!_isEditMode && selected != null) ? itemsBar() : Container(),
-        ],
+              Positioned(
+                right: 32,
+                top: 32,
+                child: _ModeToggle(
+                  isEditMode: _isEditMode,
+                  onChanged: (value) {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      _isEditMode = value;
+                    });
+                  },
+                ),
+              ),
+              if (_isEditMode && selected != null) optionsBar(),
+              if (!_isEditMode && selected != null) itemsBar(),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   InteractiveViewer draggableRooms(BuildContext context) {
+    final theme = Theme.of(context);
     return InteractiveViewer(
       panEnabled: true,
       scaleEnabled: true,
@@ -98,9 +229,9 @@ class _RoomPageState extends State<RoomPage> {
       minScale: 0.1,
       maxScale: 20.0,
       transformationController: _controller,
-      onInteractionEnd: (details){
+      onInteractionEnd: (details) {
         setState(() {
-          if(selected != null){
+          if (selected != null) {
             selected!.isSelected = false;
           }
           selected = null;
@@ -112,12 +243,12 @@ class _RoomPageState extends State<RoomPage> {
         decoration: BoxDecoration(
           gradient: RadialGradient(
             center: Alignment.center,
-            radius: 3,
+            radius: 2.5,
             colors: [
-              AppColors.background,
-              Colors.black,
+              theme.colorScheme.surfaceVariant.withOpacity(0.7),
+              theme.colorScheme.surface.withOpacity(0.9),
             ],
-            stops: [0.1, 1.0],
+            stops: const [0.15, 1.0],
           ),
         ),
         key: _stackKey,
@@ -126,10 +257,11 @@ class _RoomPageState extends State<RoomPage> {
             return RoomWidget(
               room: room,
               onRoomSelected: _onSelected,
-              onRoomMoved: (offset){
+              onRoomMoved: (offset) {
                 _onSelected(room, true);
-                RenderBox stackBox = _stackKey.currentContext!.findRenderObject() as RenderBox;
-                Offset localPosition = stackBox.globalToLocal(offset);
+                final RenderBox stackBox =
+                    _stackKey.currentContext!.findRenderObject() as RenderBox;
+                final Offset localPosition = stackBox.globalToLocal(offset);
                 _onMoved(localPosition);
               },
               onRoomResized: _onResized,
@@ -147,31 +279,54 @@ class _RoomPageState extends State<RoomPage> {
   }
 
   Widget itemsBar() {
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
     return DraggableScrollableSheet(
-      initialChildSize: 0.3,
-      minChildSize: 0.3,
+      initialChildSize: 0.32,
+      minChildSize: 0.25,
       maxChildSize: 0.8,
       builder: (context, scrollController) => Container(
-        color: AppColors.secondary,
-        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          boxShadow: [
+            BoxShadow(
+              color: extras.shadowColor,
+              blurRadius: 24,
+              offset: const Offset(0, -6),
+              spreadRadius: -10,
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: Text(
                     'Items in $selectedName ${selected?.name}',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
-                    ),
+                    style:
+                        theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
-                GestureDetector(
-                  onTap: () async {
-                    ItemModel newItem = ItemModel(name: '', description: '');
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.add_rounded),
+                  onPressed: () async {
+                    HapticFeedback.lightImpact();
+                    final ItemModel newItem = ItemModel(name: '', description: '');
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -180,26 +335,19 @@ class _RoomPageState extends State<RoomPage> {
                     );
                     if (newItem.name.isNotEmpty) {
                       setState(() {
-                        selected!.items = List<ItemModel>.from(selected!.items)..add(newItem);
+                        selected!.items =
+                            List<ItemModel>.from(selected!.items)..add(newItem);
                       });
+                      await _saveSpacesWithFeedback(
+                        failureMessage:
+                            'Failed to save the new item. Please try again.',
+                      );
                     }
                   },
-                  child: Container(
-                    margin: const EdgeInsets.all(10),
-                    width: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.iconBackground,
-                      borderRadius: BorderRadius.circular(10)
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.add,
-                      color: AppColors.iconColor,
-                    ),
-                  ),
-                )
+                ),
               ],
             ),
+            const SizedBox(height: 12),
             Expanded(
               child: ListView.builder(
                 controller: scrollController,
@@ -213,207 +361,220 @@ class _RoomPageState extends State<RoomPage> {
     );
   }
 
-  Widget? itemBarEntry(context, index) {
+  Widget? itemBarEntry(BuildContext context, int index) {
+    final theme = Theme.of(context);
     final item = selected!.items[index];
-    return ListTile(
-      title: Text(item.name),
-      leading: CircleAvatar(
-        child: item.imagePath == null ? ItemModel.defaultIcons[Random().nextInt(ItemModel.defaultIcons.length)] : null,
-        backgroundImage: item.imagePath != null ? FileImage(File(item.imagePath!)) : null,
-        backgroundColor: AppColors.iconBackground,
-      ),
-      trailing: GestureDetector(
-        onTap: () async {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-              title: Text('Are you sure?'),
-              content: Text('Do you want to delete this object?'),
-              actions: [
-                TextButton(
-                child: Text('Cancel'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                ),
-                TextButton(
-                child: Text('Delete'),
-                onPressed: () {
-                  setState(() {
-                    selected!.items.remove(item);
-                  });
-                  SpaceModel.saveItems();
-                  Navigator.of(context).pop();
-                },
-                ),
-              ],
-              );
-            },
-          );
-        },
-        child: Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
-          ),
-          alignment: Alignment.center,
-          child: const Icon(
-            Icons.delete,
-            color: AppColors.iconColor,
-          ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        tileColor: theme.colorScheme.surfaceVariant.withOpacity(0.35),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(item.name),
+        leading: CircleAvatar(
+          backgroundColor: theme.colorScheme.primaryContainer.withOpacity(0.4),
+          foregroundColor: theme.colorScheme.primary,
+          child: item.imagePath == null
+              ? Icon(
+                  ItemModel.defaultIcons[
+                      Random().nextInt(ItemModel.defaultIcons.length)],
+                )
+              : null,
+          backgroundImage:
+              item.imagePath != null ? FileImage(File(item.imagePath!)) : null,
         ),
+        trailing: IconButton(
+          icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error),
+          onPressed: () async {
+            HapticFeedback.selectionClick();
+            final bool? confirmed = await showDialog<bool>(
+              context: context,
+              builder: (BuildContext context) {
+                return AlertDialog(
+                  title: const Text('Delete item'),
+                  content: const Text('Do you want to delete this object?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.error,
+                        foregroundColor: theme.colorScheme.onError,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Delete'),
+                    ),
+                  ],
+                );
+              },
+            );
+            if (confirmed == true) {
+              setState(() {
+                selected!.items.remove(item);
+              });
+              await _saveSpacesWithFeedback(
+                failureMessage: 'Failed to delete the item. Please try again.',
+              );
+            }
+          },
+        ),
+        onTap: () async {
+          HapticFeedback.selectionClick();
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ItemDisplayPage(item: item),
+            ),
+          );
+          if (result == true) {
+            setState(() {});
+          }
+        },
       ),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ItemDisplayPage(item: item),
-          ),
-        );
-      },
     );
   }
 
-  Positioned optionsBar() {
+  Widget optionsBar() {
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
+    final bool isRoomSelection = selectedIsRoom;
+    final Size normalizedSize = _normalizedSizeFor(selected!, isRoom: isRoomSelection);
+    final double minDimension = isRoomSelection ? 50 : 10;
+    final double maxWidth = isRoomSelection ? 300 : 150;
+    final double maxHeight = isRoomSelection ? 300 : 150;
+    final String capitalizedName = selectedName.isEmpty
+        ? 'Selection'
+        : '${selectedName[0].toUpperCase()}${selectedName.substring(1)}';
     return Positioned(
       left: 0,
       right: 0,
       bottom: 0,
       child: Container(
-        color: AppColors.secondary,
-        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          boxShadow: [
+            BoxShadow(
+              color: extras.shadowColor,
+              blurRadius: 24,
+              offset: const Offset(0, -6),
+              spreadRadius: -10,
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '$selectedName options',
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-            const SizedBox(height: 10,),
+            const SizedBox(height: 12),
             Text(
-              'Change width of the $selectedName:',
-                style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold
-              ),
+              '$capitalizedName options',
+              style:
+                  theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
+            const SizedBox(height: 16),
+            Text('Change width:', style: theme.textTheme.bodyMedium),
             Slider(
-              value: selected!.size.width,
-              min: selectedIsRoom ? 50 : 10,
-              max: selectedIsRoom ? 300 : 100,
+              value: normalizedSize.width,
+              min: minDimension,
+              max: maxWidth,
               onChanged: (value) {
-                _onWidthChanged(value);
+                setState(() {
+                  _onWidthChanged(value);
+                });
               },
-              activeColor: AppColors.primary,
-              inactiveColor: AppColors.iconBackground,
             ),
-            Text(
-              'Change height of the $selectedName:',
-                style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold
-              ),
-            ),
+            const SizedBox(height: 12),
+            Text('Change height:', style: theme.textTheme.bodyMedium),
             Slider(
-              value: selected!.size.height,
-              min: selectedIsRoom ? 50 : 10,
-              max: selectedIsRoom ? 300 : 100,
+              value: normalizedSize.height,
+              min: minDimension,
+              max: maxHeight,
               onChanged: (value) {
-                _onHeightChanged(value);
+                setState(() {
+                  _onHeightChanged(value);
+                });
               },
-              activeColor: AppColors.primary,
-              inactiveColor: AppColors.iconBackground,
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
               children: [
-                Container(
-                  margin: const EdgeInsets.all(10),
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.iconBackground,
-                    borderRadius: BorderRadius.circular(10)
-                  ),
-                  alignment: Alignment.center,
-                    child: IconButton(
-                    icon: Icon(Icons.delete, color: AppColors.iconColor),
-                    onPressed: () {
-                      showDialog(
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    HapticFeedback.selectionClick();
+                    final bool? confirmed = await showDialog<bool>(
                       context: context,
                       builder: (BuildContext context) {
                         return AlertDialog(
-                        title: Text('Are you sure?'),
-                        content: Text('Do you want to delete this $selectedName?'),
-                        actions: [
-                          TextButton(
-                          child: Text('Cancel'),
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                          },
-                          ),
-                          TextButton(
-                          child: Text('Delete'),
-                          onPressed: () async {
-                            setState(() {
-                              if(selectedIsRoom){
-                                currentSpace.mySpaces.remove(selected);
-                                selected = null;
-                              }
-                              else{
-                                if(selected!.parent == null){
-                                  currentSpace.mySpaces.forEach((room) {room.assignParents();});
-                                }
-                                selected!.parent!.mySpaces.remove(selected);
-                                selected = null;
-                              }
-                            });
-                            await SpaceModel.saveItems();
-                            Navigator.of(context).pop();
-                          },
-                          ),
-                        ],
+                          title: const Text('Delete selection'),
+                          content: Text('Delete this ${selectedName.isEmpty ? 'selection' : selectedName}?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: theme.colorScheme.error,
+                                foregroundColor: theme.colorScheme.onError,
+                              ),
+                              onPressed: () => Navigator.of(context).pop(true),
+                              child: const Text('Delete'),
+                            ),
+                          ],
                         );
                       },
+                    );
+                    if (confirmed == true) {
+                      setState(() {
+                        if (selectedIsRoom) {
+                          currentSpace.mySpaces.remove(selected);
+                          selected = null;
+                        } else {
+                          selected!.parent?.mySpaces.remove(selected);
+                          selected = null;
+                        }
+                      });
+                      await _saveSpacesWithFeedback(
+                        failureMessage:
+                            'Failed to delete the selection. Please try again.',
                       );
-                    },
-                    ),
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  label: const Text('Delete'),
                 ),
-                Container(
-                  margin: const EdgeInsets.all(10),
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.iconBackground,
-                    borderRadius: BorderRadius.circular(10)
-                  ),
-                  alignment: Alignment.center,
-                  child: IconButton(
-                    icon: Icon(Icons.edit, color: AppColors.iconColor),
-                    onPressed: () {
-                      _renameSelected();
-                    },
-                  ),
+                FilledButton.tonalIcon(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    _renameSelected();
+                  },
+                  icon: const Icon(Icons.edit_rounded),
+                  label: const Text('Rename'),
                 ),
-                selectedIsRoom ? Container(
-                  margin: const EdgeInsets.all(10),
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.iconBackground,
-                    borderRadius: BorderRadius.circular(10)
-                  ),
-                  alignment: Alignment.center,
-                  child: IconButton(
-                    icon: Icon(Icons.add, color: AppColors.iconColor),
+                if (selectedIsRoom)
+                  FilledButton.tonalIcon(
                     onPressed: () {
+                      HapticFeedback.lightImpact();
                       _addDrawer();
                     },
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add drawer'),
                   ),
-                ) : Container(),
               ],
             ),
           ],
@@ -422,53 +583,77 @@ class _RoomPageState extends State<RoomPage> {
     );
   }
 
-  void _addDrawer() async {
-    String? drawerName = await showDialog<String>(
+  Future<void> _addDrawer() async {
+    final controller = TextEditingController();
+    final String? drawerName = await showDialog<String>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Add a new drawer'),
           content: TextField(
+            controller: controller,
             autofocus: true,
             decoration: const InputDecoration(
               labelText: 'Drawer name',
             ),
-            onSubmitted: (value) {
-              Navigator.of(context).pop(value);
-            },
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Add'),
+            ),
+          ],
         );
       },
     );
     if (drawerName != null && drawerName.isNotEmpty) {
       setState(() {
+        final newDrawer = SpaceModel(
+          name: drawerName,
+          position: Offset.zero,
+          size: const Size(20, 20),
+        );
+        newDrawer.parent = selected;
+        _ensureSpaceWithinBounds(newDrawer, isRoom: false);
         selected!.mySpaces = (List<SpaceModel>.from(selected!.mySpaces)
-          ..add(
-            SpaceModel(
-              name: drawerName,
-              position: Offset(0, 0),
-              size: const Size(20, 20),
-            ) ,
-          ));
+          ..add(newDrawer));
       });
+      await _saveSpacesWithFeedback(
+        failureMessage: 'Failed to save the new drawer. Please try again.',
+      );
     }
   }
 
   void _renameSelected() async {
-    String? newName = await showDialog<String>(
+    final controller = TextEditingController(text: selected?.name ?? '');
+    final String? newName = await showDialog<String>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: Text('Rename $selectedName'),
           content: TextField(
+            controller: controller,
             autofocus: true,
             decoration: InputDecoration(
               labelText: 'New $selectedName name',
             ),
-            onSubmitted: (value) {
-              Navigator.of(context).pop(value);
-            },
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Save'),
+            ),
+          ],
         );
       },
     );
@@ -476,107 +661,75 @@ class _RoomPageState extends State<RoomPage> {
       setState(() {
         selected!.name = newName;
       });
+      await _saveSpacesWithFeedback(
+        failureMessage: 'Failed to rename. Please try again.',
+      );
     }
   }
 
+  Future<bool> _saveSpacesWithFeedback({String? failureMessage}) async {
+    final saved = await SpaceModel.saveItems();
+    if (!mounted) {
+      return saved;
+    }
+    if (!saved) {
+      _showSaveFailureSnackBar(failureMessage);
+    }
+    return saved;
+  }
+
+  void _showSaveFailureSnackBar([String? message]) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+            Text(message ?? 'Failed to save changes. Please try again.'),
+      ),
+    );
+  }
+
   AppBar appBar() {
+    final theme = Theme.of(context);
     return AppBar(
       title: Text(
         currentSpace.name,
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.bold
-        ),
+        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
-      centerTitle: true,
-      backgroundColor: AppColors.primary,
-      elevation: 0,
-      leading: GestureDetector(
-        onTap: () {
-          Navigator.of(context).pop();
-          SpaceModel.saveItems();
-        },
-        child: Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
-          ),
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: SvgPicture.asset('assets/icons/Arrow - Left 2.svg'),
-          ),
-        ),
-      ),
+      backgroundColor: Colors.transparent,
       actions: [
-        Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
-          ),
-          alignment: Alignment.center,
-          child: IconButton(
-            icon: Icon(Icons.save, color: AppColors.iconColor),
-            onPressed: () {
-              SpaceModel.saveItems();
-            },
-          ),
-        ),
-        _isEditMode ? GestureDetector(
-          onTap: () async {
-            String? roomName = await showDialog<String>(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: const Text('Add a new room'),
-                  content: TextField(
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Room name',
-                    ),
-                    onSubmitted: (value) {
-                      Navigator.of(context).pop(value);
-                    },
-                  ),
-                );
-              },
+        IconButton(
+          icon: const Icon(Icons.save_outlined),
+          tooltip: 'Save layout',
+          onPressed: () async {
+            HapticFeedback.selectionClick();
+            await _saveSpacesWithFeedback(
+              failureMessage: 'Failed to save the layout. Please try again.',
             );
-            if (roomName != null && roomName.isNotEmpty) {
-              setState(() {
-                currentSpace.mySpaces = List.from(currentSpace.mySpaces)
-                  ..add(
-                    SpaceModel(
-                      name: roomName,
-                        position: Offset(
-                        MediaQuery.of(context).size.width - 200,
-                        MediaQuery.of(context).size.height - 400,
-                        ),
-                      size: const Size(100, 100),
-                    ),
-                  );
-              });
-            }
           },
-          child: Container(
-            margin: const EdgeInsets.all(10),
-            width: 40,
-            decoration: BoxDecoration(
-              color: AppColors.iconBackground,
-              borderRadius: BorderRadius.circular(10)
-            ),
-            alignment: Alignment.center,
-            child: const Icon(
-              Icons.add,
-              color: AppColors.iconColor,
-            ),
+        ),
+        if (_isEditMode)
+          IconButton(
+            icon: const Icon(Icons.add_box_outlined),
+            tooltip: 'Add room',
+            onPressed: _showAddRoomDialog,
           ),
-        ) : Container(),
       ],
+      leading: IconButton(
+        icon: SvgPicture.asset(
+          'assets/icons/Arrow - Left 2.svg',
+          color: theme.colorScheme.onSurface,
+        ),
+        onPressed: () async {
+          HapticFeedback.selectionClick();
+          await _saveSpacesWithFeedback(
+            failureMessage: 'Failed to save your changes. Please try again.',
+          );
+          if (!mounted) return;
+          Navigator.of(context).pop();
+        },
+      ),
     );
   }
 
@@ -585,11 +738,14 @@ class _RoomPageState extends State<RoomPage> {
       selectedName = isRoom ? 'room' : 'drawer';
       selectedIsRoom = isRoom;
       selected = room;
-      currentSpace.mySpaces.forEach((r) => r.isSelected = false);
-      for (var room in currentSpace.mySpaces) {
-        room.mySpaces.forEach((d) => d.isSelected = false);
+      for (final r in currentSpace.mySpaces) {
+        r.isSelected = false;
+        for (final d in r.mySpaces) {
+          d.isSelected = false;
+        }
       }
       room.isSelected = true;
+      _ensureSpaceWithinBounds(room, isRoom: isRoom);
     });
   }
 
@@ -623,5 +779,47 @@ class _RoomPageState extends State<RoomPage> {
         selected!.size = Size(width, selected!.size.height);
       }
     });
+  }
+}
+
+class _ModeToggle extends StatelessWidget {
+  const _ModeToggle({required this.isEditMode, required this.onChanged});
+
+  final bool isEditMode;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: extras.glassBackground,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: extras.shadowColor,
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+            spreadRadius: -12,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            isEditMode ? 'Edit mode' : 'Item mode',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(width: 12),
+          Switch(
+            value: isEditMode,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
   }
 }
