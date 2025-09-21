@@ -35,7 +35,7 @@ class _RoomPageState extends State<RoomPage> {
       appBar: appBar(),
       body: Stack(
         children: [
-            dragableRooms(context),
+            draggableRooms(context),
             Positioned(
               right: 0,
               top: 0,
@@ -84,7 +84,7 @@ class _RoomPageState extends State<RoomPage> {
     );
   }
 
-  InteractiveViewer dragableRooms(BuildContext context) {
+  InteractiveViewer draggableRooms(BuildContext context) {
     return InteractiveViewer(
       panEnabled: true,
       scaleEnabled: true,

@@ -38,8 +38,18 @@ class SpaceModel {
       name: json['name'],
       position: Offset(json['position']['dx'], json['position']['dy']),
       size: Size(json['size']['width'], json['size']['height']),
-      mySpaces: List<SpaceModel>.from(json['mySpaces'].map((spaceJson) => SpaceModel.fromJson(spaceJson))),
-      items: List<ItemModel>.from(json['items'].map((itemJson) => ItemModel.fromJson(itemJson)) ?? []),
+      mySpaces: json['mySpaces'] != null
+          ? List<SpaceModel>.from(
+              (json['mySpaces'] as List<dynamic>)
+                  .map((spaceJson) => SpaceModel.fromJson(spaceJson)),
+            )
+          : [],
+      items: json['items'] != null
+          ? List<ItemModel>.from(
+              (json['items'] as List<dynamic>)
+                  .map((itemJson) => ItemModel.fromJson(itemJson)),
+            )
+          : [],
     );
     for (var space in ret.mySpaces) {
       space.parent = ret;
