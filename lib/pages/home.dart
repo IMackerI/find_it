@@ -174,7 +174,6 @@ class _HomePageState extends State<HomePage> {
         );
       },
     );
-    controller.dispose();
     return result;
   }
 
