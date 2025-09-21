@@ -1,408 +1,556 @@
 import 'package:flutter/material.dart';
-import 'package:find_it/models/space_model.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:find_it/colors.dart';
 
-import 'search.dart';
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
 import 'room.dart';
+import 'search.dart';
 import 'settings.dart';
 
+enum _SpaceMenuAction { rename, delete }
+
 class HomePage extends StatefulWidget {
-  HomePage({super.key});
+  const HomePage({super.key});
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-
-  @override
-  void initState() {
-    super.initState();
-    asyncInit();
+  Future<void> _refreshSpaces() async {
+    await SpaceModel.loadItems();
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void asyncInit() async {
-    await SpaceModel.loadItems();
+  Future<void> _openSearch() async {
+    HapticFeedback.selectionClick();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => SearchPage()),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openSettings() async {
+    HapticFeedback.selectionClick();
+    final bool? loaded = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsPage()),
+    );
+    if (!mounted) return;
+    if (loaded == true) {
+      await SpaceModel.loadItems();
+      setState(() {});
+    }
+  }
+
+  Future<void> _openSpace(SpaceModel space) async {
+    HapticFeedback.selectionClick();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RoomPage(curSpace: space),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _addSpace() async {
+    HapticFeedback.lightImpact();
+    final String? name = await _promptForName(
+      title: 'Create a new space',
+      label: 'Space name',
+      confirmLabel: 'Add',
+    );
+    if (name == null || name.trim().isEmpty) {
+      return;
+    }
     setState(() {
-      print("asyncInit");
+      SpaceModel.currentSpaces.add(SpaceModel(name: name.trim()));
     });
+    await SpaceModel.saveItems();
+    HapticFeedback.mediumImpact();
+  }
+
+  Future<void> _renameSpace(int index) async {
+    HapticFeedback.selectionClick();
+    final space = SpaceModel.currentSpaces[index];
+    final String? newName = await _promptForName(
+      title: 'Rename space',
+      label: 'Space name',
+      confirmLabel: 'Save',
+      initialValue: space.name,
+    );
+    if (newName == null || newName.trim().isEmpty) {
+      return;
+    }
+    setState(() {
+      space.name = newName.trim();
+    });
+    await SpaceModel.saveItems();
+    HapticFeedback.lightImpact();
+  }
+
+  Future<void> _deleteSpace(int index) async {
+    HapticFeedback.selectionClick();
+    final space = SpaceModel.currentSpaces[index];
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete space'),
+          content: Text('Remove "${space.name}" and everything inside it?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) {
+      setState(() {
+        SpaceModel.currentSpaces.removeAt(index);
+      });
+      await SpaceModel.saveItems();
+      HapticFeedback.mediumImpact();
+    }
+  }
+
+  Future<String?> _promptForName({
+    required String title,
+    required String label,
+    required String confirmLabel,
+    String? initialValue,
+  }) async {
+    final controller = TextEditingController(text: initialValue);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(labelText: label),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: Text(confirmLabel),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return result;
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      theme: ThemeData(
-        primaryColor: AppColors.primary,
-        scaffoldBackgroundColor: AppColors.background,
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
+    final spaces = SpaceModel.currentSpaces;
 
-        textTheme: const TextTheme(
-          bodyLarge: TextStyle(color: AppColors.textPrimary),
-          bodyMedium: TextStyle(color: AppColors.textPrimary),
-          bodySmall: TextStyle(color: AppColors.textSecondary),
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: Text(
+          'Find It',
+          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
-      ),
-      home: Scaffold(
-        appBar: appBar(),
-        body: Container(
-          color: AppColors.background,
-          child: Column(
-            children: [
-              searchField(),
-              const SizedBox(height: 40),
-              spacesText(),
-              Expanded(child: spacesList()),
-            ],
+        actions: [
+          IconButton(
+            onPressed: _openSettings,
+            icon: const Icon(Icons.settings_rounded),
+            tooltip: 'Settings',
           ),
-        )
+        ],
       ),
-    );
-  }
-
-  AppBar appBar() {
-    return AppBar(
-      title: const Text(
-        'Home Page',
-        style: TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.bold
-        ),
-      ),
-      centerTitle: true,
-      backgroundColor: AppColors.primary,
-      elevation: 0,
-      actions: [
-        GestureDetector(
-          onTap: () async {
-            final loaded = await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => SettingsPage()),
-            );
-            if(loaded == true){
-              setState(() {
-                print("Settings loaded");
-              });
-            }
-          },
-          child: Container(
-            margin: const EdgeInsets.all(10),
-            width: 40,
-            decoration: BoxDecoration(
-              color: AppColors.iconBackground,
-              borderRadius: BorderRadius.circular(10)
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.settings,
-              color: AppColors.iconColor,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Container searchField() {
-    return Container(
-      margin: const EdgeInsets.only(top: 40, left: 20, right: 20),
-      decoration: const BoxDecoration(
-        boxShadow: [
-          BoxShadow(
-            color: Color.fromARGB(80, 177, 185, 192),
-            blurRadius: 40,
-            spreadRadius: 5,
-            offset: Offset(0, 0)
-          )
-        ]
-      ),
-      child: GestureDetector(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => SearchPage()),
-          );
-        },
-        child: TextField(
-          enabled: false,
-          decoration: InputDecoration(
-            hintText: 'Search for an item',
-            hintStyle: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 16
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(20),
-              borderSide: BorderSide.none
-            ),
-            contentPadding: const EdgeInsets.all(10),
-            prefixIcon: Padding(
-              padding: const EdgeInsets.all(12),
-              child: SvgPicture.asset('assets/icons/Search.svg'),
-            ),
-            suffixIcon: SizedBox(
-              width: 100,
-              child: IntrinsicHeight(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    VerticalDivider(
-                      color: Colors.grey[300],
-                      thickness: 1,
-                      indent: 10,
-                      endIndent: 10,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: SvgPicture.asset('assets/icons/Filter.svg'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            fillColor: Colors.white,
-            filled: true
-          ),
-        ),
-      ),
-    );
-  }
-
-  GridView spacesList() {
-    return GridView.custom(
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 20,
-        mainAxisSpacing: 20,
-        childAspectRatio: 0.9,
-      ),
-      padding: const EdgeInsets.only(top: 20, left: 20, right: 20),
-      scrollDirection: Axis.vertical,
-      childrenDelegate: SliverChildBuilderDelegate(
-        childCount: SpaceModel.currentSpaces.length + 1,
-        (context, index) {
-          if (index == SpaceModel.currentSpaces.length) {
-            return addSpace(context);
-          } else {
-            return spaceThumbnail(context, index);
-          }
-        },
-      ),
-    );
-  }
-
-  Stack spaceThumbnail(BuildContext context, int index) {
-    return Stack(
-      children: [
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => RoomPage(curSpace: SpaceModel.currentSpaces[index])),
-            );
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              color: AppColors.secondary.withOpacity(0.5),
-            ),
+      body: Container(
+        decoration: BoxDecoration(gradient: extras.backgroundGradient),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  flex: 2, // Adjust flex to control the size ratio between the image and the tag
-                  child: SvgPicture.asset(
-                    'assets/icons/dots.svg',
-                    fit: BoxFit.cover,
-                    color: AppColors.iconColor,
-                  ),
+                _buildSearchField(theme),
+                const SizedBox(height: 28),
+                Text(
+                  'Spaces',
+                  style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
+                const SizedBox(height: 16),
                 Expanded(
-                  flex: 1, // Adjust flex if needed
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      color: AppColors.tertiary,
-                      borderRadius: BorderRadius.only(
-                        bottomLeft: Radius.circular(20),
-                        bottomRight: Radius.circular(20),
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        SpaceModel.currentSpaces[index].name,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary, // Adjust text color to contrast with the tag background
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final maxCrossAxisExtent = constraints.maxWidth < 480
+                          ? 220.0
+                          : constraints.maxWidth < 768
+                              ? 260.0
+                              : 320.0;
+                      final aspectRatio = constraints.maxWidth < 600 ? 0.9 : 1.05;
+
+                      if (spaces.isEmpty) {
+                        return RefreshIndicator(
+                          onRefresh: _refreshSpaces,
+                          edgeOffset: 12,
+                          displacement: 36,
+                          child: ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(height: constraints.maxHeight * 0.1),
+                              _EmptyState(onAddSpace: _addSpace),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return RefreshIndicator(
+                        onRefresh: _refreshSpaces,
+                        edgeOffset: 12,
+                        displacement: 36,
+                        child: GridView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.only(bottom: 12),
+                          itemCount: spaces.length + 1,
+                          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: maxCrossAxisExtent,
+                            mainAxisSpacing: 24,
+                            crossAxisSpacing: 24,
+                            childAspectRatio: aspectRatio,
+                          ),
+                          itemBuilder: (context, index) {
+                            if (index == spaces.length) {
+                              return _AddSpaceCard(onTap: _addSpace);
+                            }
+                            return _SpaceCard(
+                              space: spaces[index],
+                              onOpen: () => _openSpace(spaces[index]),
+                              onRename: () => _renameSpace(index),
+                              onDelete: () => _deleteSpace(index),
+                            );
+                          },
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
                 ),
               ],
             ),
           ),
         ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: PopupMenuButton<int>(
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 1,
-                child: Text("Rename"),
-              ),
-              PopupMenuItem(
-                value: 2,
-                child: Text("Delete"),
+      ),
+    );
+  }
+
+  TextField _buildSearchField(ThemeData theme) {
+    final extras = theme.extension<AppThemeColors>()!;
+    return TextField(
+      readOnly: true,
+      onTap: _openSearch,
+      decoration: InputDecoration(
+        hintText: 'Search for an item',
+        hintStyle: theme.textTheme.bodyLarge?.copyWith(color: extras.subtleText),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.all(12),
+          child: SvgPicture.asset(
+            'assets/icons/Search.svg',
+            colorFilter: ColorFilter.mode(
+              theme.colorScheme.onSurfaceVariant,
+              BlendMode.srcIn,
+            ),
+          ),
+        ),
+        suffixIcon: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer.withOpacity(0.35),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Icon(
+              Icons.tune_rounded,
+              color: theme.colorScheme.primary,
+              size: 20,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpaceCard extends StatelessWidget {
+  const _SpaceCard({
+    required this.space,
+    required this.onOpen,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final SpaceModel space;
+  final VoidCallback onOpen;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
+    final colorScheme = theme.colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: extras.cardGradient,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: extras.shadowColor,
+                blurRadius: 22,
+                offset: const Offset(0, 12),
+                spreadRadius: -12,
               ),
             ],
-            onSelected: (value) async {
-              if (value == 1) {
-                // Rename the space
-                String? newName = await showDialog<String>(
-                  context: context,
-                  builder: (context) {
-                    return AlertDialog(
-                      title: Text('Enter new space name'),
-                      content: TextField(
-                        autofocus: true,
-                        decoration: InputDecoration(
-                          labelText: 'Space Name',
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                top: 16,
+                right: 16,
+                child: _SpaceMenu(
+                  onRename: onRename,
+                  onDelete: onDelete,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 54,
+                      width: 54,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Center(
+                        child: SvgPicture.asset(
+                          'assets/icons/dots.svg',
+                          colorFilter: ColorFilter.mode(
+                            colorScheme.onPrimaryContainer,
+                            BlendMode.srcIn,
+                          ),
+                          width: 28,
+                          height: 28,
                         ),
-                        onSubmitted: (value) {
-                          Navigator.of(context).pop(value);
-                        },
                       ),
-                    );
-                  },
-                );
-                if (newName != null && newName.isNotEmpty) {
-                  setState(() {
-                    SpaceModel.currentSpaces[index].name = newName;
-                  });
-                  SpaceModel.saveItems();
-                }
-              } else if (value == 2) {
-                showDialog(
-                  context: context,
-                  builder: (BuildContext context) {
-                    return AlertDialog(
-                    title: Text('Are you sure?'),
-                    content: Text('Do you want to delete this space?'),
-                    actions: [
-                      TextButton(
-                      child: Text('Cancel'),
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                      },
+                    ),
+                    const Spacer(),
+                    Text(
+                      space.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: colorScheme.onPrimaryContainer,
                       ),
-                      TextButton(
-                      child: Text('Delete'),
-                      onPressed: () {
-                        setState(() {
-                          SpaceModel.currentSpaces.removeAt(index);
-                        });
-                        SpaceModel.saveItems();
-                        Navigator.of(context).pop();
-                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${space.mySpaces.length} subspaces • ${space.items.length} items',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onPrimaryContainer.withOpacity(0.75),
                       ),
-                    ],
-                    );
-                  },
-                );
-              }
-            },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddSpaceCard extends StatelessWidget {
+  const _AddSpaceCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: extras.glassBackground,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: extras.borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: extras.shadowColor,
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+                spreadRadius: -8,
+              ),
+            ],
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.add_circle_outline,
+                  size: 36,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Add space',
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Tap to create a new location',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(color: extras.subtleText),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpaceMenu extends StatelessWidget {
+  const _SpaceMenu({required this.onRename, required this.onDelete});
+
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return PopupMenuButton<_SpaceMenuAction>(
+      tooltip: 'Space options',
+      offset: const Offset(0, 36),
+      onSelected: (value) {
+        HapticFeedback.selectionClick();
+        switch (value) {
+          case _SpaceMenuAction.rename:
+            onRename();
+            break;
+          case _SpaceMenuAction.delete:
+            onDelete();
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<_SpaceMenuAction>(
+          value: _SpaceMenuAction.rename,
+          child: Row(
+            children: [
+              Icon(Icons.edit_rounded, size: 18, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: 12),
+              const Text('Rename'),
+            ],
+          ),
+        ),
+        PopupMenuItem<_SpaceMenuAction>(
+          value: _SpaceMenuAction.delete,
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline_rounded, size: 18, color: colorScheme.error),
+              const SizedBox(width: 12),
+              const Text('Delete'),
+            ],
           ),
         ),
       ],
+      icon: const Icon(Icons.more_horiz_rounded),
+      color: theme.colorScheme.surface,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     );
   }
+}
 
-  GestureDetector addSpace(BuildContext context) {
-    return GestureDetector(
-      onTap: () async {
-        String? newName = await showDialog<String>(
-          context: context,
-          builder: (context) {
-            return AlertDialog(
-              title: Text('Enter new space name'),
-              content: TextField(
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: 'Space Name',
-                ),
-                onSubmitted: (value) {
-                  Navigator.of(context).pop(value);
-                },
-              ),
-            );
-          },
-        );
-        if (newName != null && newName.isNotEmpty) {
-          // Add the new space to currentSpaces
-          setState(() {
-            SpaceModel.currentSpaces.add(SpaceModel(name: newName));
-          });
-          await SpaceModel.saveItems();
-        }
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          color: AppColors.secondary.withOpacity(0.5), // Adjusted color opacity
-        ),
-        child: Column(
-          children: [
-            const Expanded(
-              flex: 2,
-              child: Icon(
-                Icons.add,
-                size: 50.0,
-                color: AppColors.iconColor,
-              ),
-            ),
-            Expanded(
-              flex: 1, // Adjust flex if needed
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: AppColors.tertiary,
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(20),
-                    bottomRight: Radius.circular(20),
-                  ),
-                ),
-                child: const Center(
-                  child: Text(
-                    'Add Space',
-                    style: TextStyle(
-                      color: AppColors.textPrimary, // Adjust text color to contrast with the tag background
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.onAddSpace});
+
+  final VoidCallback onAddSpace;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final extras = theme.extension<AppThemeColors>()!;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.auto_awesome_outlined,
+            size: 86,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Create your first space',
+            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Group your rooms, drawers and shelves to make searching effortless.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(color: extras.subtleText),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: onAddSpace,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add a space'),
+          ),
+        ],
       ),
     );
   }
-  
-  Padding spacesText() {
-    return const Padding(
-      padding: EdgeInsets.only(left: 20),
-      child: Text(
-        'spaces',
-        style: TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.bold
-        ),
-      ),
-    );
-  }
-
 }

@@ -1,48 +1,64 @@
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:find_it/models/item_model.dart';
-import 'models/space_model.dart';
 
+import 'models/space_model.dart';
 import 'pages/home.dart';
-//import 'pages/search.dart';
-//import 'pages/room.dart';
+import 'theme/app_theme.dart';
+import 'theme/theme_controller.dart';
 
 void main() async {
-  // Ensure binding
   WidgetsFlutterBinding.ensureInitialized();
-  WidgetsBinding.instance!.addPostFrameCallback((_) {
-    // Load data after hot restart
-    SpaceModel.loadItems();
-  });
+  await SpaceModel.loadItems();
 
-  // Add lifecycle observer
-  WidgetsBinding.instance!.addObserver(MyApp());
-
-  runApp(MyApp());
+  final themeController = ThemeController();
+  runApp(FindItApp(themeController: themeController));
 }
 
-class MyApp extends StatelessWidget with WidgetsBindingObserver {
-    const MyApp({super.key});
+class FindItApp extends StatefulWidget {
+  const FindItApp({super.key, required this.themeController});
 
-  // This widget is the root of your application.
+  final ThemeController themeController;
+
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(fontFamily: 'Poppins'),
-      home: HomePage(),
-    );
+  State<FindItApp> createState() => _FindItAppState();
+}
+
+class _FindItAppState extends State<FindItApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
   }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    switch (state) {
-      case AppLifecycleState.paused:
-        // App is paused, save items
-        SpaceModel.saveItems();
-        break;
-      default:
-        break;
+    if (state == AppLifecycleState.paused) {
+      SpaceModel.saveItems();
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.themeController,
+      builder: (context, _) {
+        final appTheme = AppTheme(settings: widget.themeController.settings);
+        return ThemeControllerProvider(
+          controller: widget.themeController,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: appTheme.light(),
+            darkTheme: appTheme.dark(),
+            themeMode: widget.themeController.themeMode,
+            home: const HomePage(),
+          ),
+        );
+      },
+    );
   }
 }

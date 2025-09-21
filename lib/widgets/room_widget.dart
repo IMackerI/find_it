@@ -50,7 +50,7 @@ class RoomWidget extends StatelessWidget {
             },
             child: GestureDetector(
               onTap: () => onRoomSelected(room, true),
-              child: visualRoom(),
+              child: visualRoom(context),
             ),
           ),
           ...room.mySpaces.map((drawer) {
@@ -73,44 +73,61 @@ class RoomWidget extends StatelessWidget {
     );
   }
 
-  Container visualRoom() {
-    return Container(
+  Widget visualRoom(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final Color fillColor = room.isSelected
+        ? colorScheme.primaryContainer.withOpacity(0.7)
+        : colorScheme.secondaryContainer.withOpacity(0.45);
+    final Color borderColor = room.isSelected
+        ? colorScheme.primary
+        : colorScheme.outlineVariant;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
       width: room.size.width,
       height: room.size.height,
-      decoration: room.isSelected ?
-      BoxDecoration(
-      color: Color(0xFF0606c38).withOpacity(0.3),
-      borderRadius: BorderRadius.circular(5),
-      border: Border.all(
-        color: Color(0xFFbc6c25),
-        width: 1.0,
-      ),
-      ) :
-        BoxDecoration(
-        color: Color(0xFFdda15e).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(5),
+      decoration: BoxDecoration(
+        color: fillColor,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
+          color: borderColor,
+          width: 1.6,
         ),
       ),
-      child: Center(child: Text(room.name)),
+      child: Center(
+        child: Text(
+          room.name,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: colorScheme.onPrimaryContainer,
+          ),
+        ),
+      ),
     );
   }
 
-  Container visualDraggingRoom(BuildContext context) {
+  Widget visualDraggingRoom(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       width: room.size.width,
       height: room.size.height,
       decoration: BoxDecoration(
-        color: Color(0xFFa3b18a).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(5),
+        color: colorScheme.primaryContainer.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
+          color: colorScheme.primary,
+          width: 1.4,
         ),
       ),
-      child: Center(child: Text(room.name, style: Theme.of(context).textTheme.bodyMedium)),
+      child: Center(
+        child: Text(
+          room.name,
+          style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+      ),
     );
   }
 }

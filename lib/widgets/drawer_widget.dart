@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:find_it/models/space_model.dart';
-import 'package:flutter/widgets.dart';
 
 class DrawerWidget extends StatelessWidget {
   final SpaceModel drawer;
@@ -36,59 +35,68 @@ class DrawerWidget extends StatelessWidget {
         },
         child: GestureDetector(
           onTap: () => onDrawerSelected(drawer, false),
-          child: visualDrawer(),
+          child: visualDrawer(context),
         ),
       ),
     );
   }
 
-  Container visualDrawer() {
-    return Container(
+  Widget visualDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final Color fillColor = drawer.isSelected
+        ? colorScheme.primaryContainer.withOpacity(0.75)
+        : colorScheme.secondaryContainer.withOpacity(0.6);
+    final Color borderColor = drawer.isSelected
+        ? colorScheme.primary
+        : colorScheme.outlineVariant;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
       width: drawer.size.width,
       height: drawer.size.height,
-      decoration: drawer.isSelected ?
-      BoxDecoration(
-      color: Color(0xFF0606c38).withOpacity(0.7),
-      borderRadius: BorderRadius.circular(5),
-      border: Border.all(
-        color: Color(0xFFbc6c25),
-        width: 1.0,
-      ),
-      ) :
-        BoxDecoration(
-        color: Color(0xFFdda15e).withOpacity(0.7),
-        borderRadius: BorderRadius.circular(5),
+      decoration: BoxDecoration(
+        color: fillColor,
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
+          color: borderColor,
+          width: 1.4,
         ),
       ),
-      child: Center(child: Text(
-        drawer.name, 
-        style:TextStyle(
-            fontSize: 5,
-            fontWeight: FontWeight.w100,
+      child: Center(
+        child: Text(
+          drawer.name,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.labelSmall?.copyWith(
+            fontWeight: FontWeight.w500,
+            color: colorScheme.onPrimaryContainer,
           ),
-        )),
+        ),
+      ),
     );
   }
 
-  Container visualDraggingDrawer(BuildContext context) {
+  Widget visualDraggingDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       width: drawer.size.width,
       height: drawer.size.height,
       decoration: BoxDecoration(
-        color: Color(0xFFa3b18a).withOpacity(0.7),
-        borderRadius: BorderRadius.circular(5),
+        color: colorScheme.primaryContainer.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
+          color: colorScheme.primary,
+          width: 1.2,
         ),
       ),
-      child: Center(child: Text(
-        drawer.name,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 5, fontWeight: FontWeight.w100),
-        )),
+      child: Center(
+        child: Text(
+          drawer.name,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+      ),
     );
   }
 }
