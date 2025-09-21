@@ -1,12 +1,12 @@
 import 'dart:io';
 
-import 'package:find_it/colors.dart';
 import 'package:flutter/material.dart';
-import 'package:find_it/models/item_model.dart';
-import 'package:find_it/models/space_model.dart';
-import 'package:flutter/widgets.dart';
-import 'package:flutter_svg/svg.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+
+import '../models/item_model.dart';
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
 
 class ItemDisplayPage extends StatefulWidget {
   final ItemModel item;
@@ -49,148 +49,76 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
       setState(() {
         _imagePath = pickedFile.path;
       });
+      HapticFeedback.selectionClick();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final textStyles = context.textStyles;
+    final palette = context.palette;
+
     return Scaffold(
-      appBar: appBar(context),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      appBar: AppBar(
+        title: const Text('Item details'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: _confirmDelete,
+          ),
+        ],
+      ),
+      body: SafeArea(
         child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
           children: [
             GestureDetector(
               onTap: _pickImage,
               child: Container(
-                height: 200,
+                height: 220,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  image: DecorationImage(
-                    image: _imagePath != null ? FileImage(File(_imagePath!)) : AssetImage('assets/icons/dots.svg') as ImageProvider,
-                    fit: BoxFit.cover,
-                  ),
+                  color: palette.surfaceComponent,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: colors.outlineVariant),
                 ),
                 child: _imagePath == null
-                      ? Icon(
-                          Icons.add_a_photo,
-                          color: Colors.black,
-                          size: 50,
-                        )
-                      : null,
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_a_photo_outlined, color: colors.onSurfaceVariant, size: 40),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tap to add an image',
+                            style: textStyles.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ],
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(24),
+                        child: Image.file(
+                          File(_imagePath!),
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                        ),
+                      ),
               ),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 24),
             _buildTextField('Name', _nameController),
-            SizedBox(height: 16),
+            const SizedBox(height: 20),
             _buildTextField('Description', _descriptionController, maxLines: 3),
-            SizedBox(height: 16),
+            const SizedBox(height: 20),
             _buildTextField('Location', _locationController),
-            SizedBox(height: 48),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  widget.item.name = _nameController.text;
-                  widget.item.description = _descriptionController.text;
-                  widget.item.locationSpecification = _locationController.text;
-                  widget.item.imagePath = _imagePath;
-                });
-                SpaceModel.saveItems();
-                Navigator.pop(context, true);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondary,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text('Submit Changes', style: TextStyle(color: AppColors.textPrimary)),
+            const SizedBox(height: 32),
+            FilledButton.icon(
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('Save changes'),
+              onPressed: _saveChanges,
             ),
           ],
         ),
       ),
-    );
-  }
-
-  AppBar appBar(BuildContext context) {
-    return AppBar(
-      title: const Text(
-        'Item Details',
-        style: TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.bold
-        ),
-      ),
-      centerTitle: true,
-      backgroundColor: AppColors.primary,
-      leading: GestureDetector(
-        onTap: () {
-          Navigator.of(context).pop();
-          SpaceModel.saveItems();
-        },
-        child: Container(
-          margin: const EdgeInsets.all(10),
-          width: 40,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground,
-            borderRadius: BorderRadius.circular(10)
-          ),
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: SvgPicture.asset('assets/icons/Arrow - Left 2.svg'),
-          ),
-        ),
-      ),
-      actions: [
-        GestureDetector(
-          onTap: () async {
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                title: Text('Are you sure?'),
-                content: Text('Do you want to delete this object?'),
-                actions: [
-                  TextButton(
-                  child: Text('Cancel'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  ),
-                  TextButton(
-                  child: Text('Delete'),
-                  onPressed: () {
-                    setState(() {
-                      parentSpace!.items.remove(widget.item);
-                    });
-                    SpaceModel.saveItems();
-                    Navigator.of(context).pop();
-                    Navigator.of(context).pop(true);
-                  },
-                  ),
-                ],
-                );
-              },
-            );
-          },
-          child: Container(
-            margin: const EdgeInsets.all(10),
-            width: 40,
-            decoration: BoxDecoration(
-              color: AppColors.iconBackground,
-              borderRadius: BorderRadius.circular(10)
-            ),
-            alignment: Alignment.center,
-            child: const Icon(
-              Icons.delete,
-              color: AppColors.iconColor,
-            ),
-          ),
-        ),
-      ]
     );
   }
 
@@ -201,10 +129,47 @@ class _ItemDisplayPageState extends State<ItemDisplayPage> {
       onTapOutside: (event) => FocusScope.of(context).unfocus(),
       decoration: InputDecoration(
         labelText: label,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
       ),
     );
+  }
+
+  Future<void> _saveChanges() async {
+    widget.item
+      ..name = _nameController.text.trim()
+      ..description = _descriptionController.text.trim()
+      ..locationSpecification = _locationController.text.trim()
+      ..imagePath = _imagePath;
+    await SpaceModel.saveItems();
+    HapticFeedback.lightImpact();
+    if (!mounted) return;
+    Navigator.pop(context, true);
+  }
+
+  Future<void> _confirmDelete() async {
+    Feedback.forTap(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this item?'),
+        content: const Text('This item will be removed permanently.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      parentSpace?.items.remove(widget.item);
+      await SpaceModel.saveItems();
+      HapticFeedback.mediumImpact();
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    }
   }
 }

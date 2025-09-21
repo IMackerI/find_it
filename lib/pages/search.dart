@@ -1,12 +1,13 @@
 import 'dart:io';
-import 'dart:math';
-import 'package:find_it/colors.dart';
-import 'package:find_it/pages/item.dart';
+
 import 'package:flutter/material.dart';
-import 'package:find_it/models/space_model.dart';
-import 'package:find_it/models/item_model.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter/services.dart';
 import 'package:remove_diacritic/remove_diacritic.dart';
+
+import '../models/item_model.dart';
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
+import 'item.dart';
 
 class SearchPage extends StatefulWidget {
   SearchPage({super.key});
@@ -16,153 +17,244 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
+  final TextEditingController _controller = TextEditingController();
   List<SpaceModel> places = SpaceModel.currentSpaces;
   String searchValue = '';
   List<ItemModel> items = [];
 
-  void getItems(){
+  @override
+  void initState() {
+    super.initState();
+    _refreshItems();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _refreshItems() {
     items = [];
-    for (var place in places) {
+    for (final place in places) {
       place.assignParents();
       items.addAll(place.items);
-      for (var space in place.mySpaces) {
+      for (final space in place.mySpaces) {
         items.addAll(space.items);
-        for (var subSpace in space.mySpaces) {
+        for (final subSpace in space.mySpaces) {
           items.addAll(subSpace.items);
         }
       }
     }
   }
 
-  List<ItemModel> getFilteredItems(){
+  List<ItemModel> get _filteredItems {
+    final query = removeDiacritics(searchValue.toLowerCase());
     return items.where((item) {
-      return removeDiacritics(item.name.toLowerCase()).contains(removeDiacritics(searchValue.toLowerCase())) 
-      || removeDiacritics(item.description.toLowerCase()).contains(removeDiacritics(searchValue.toLowerCase()));
+      final name = removeDiacritics(item.name.toLowerCase());
+      final description = removeDiacritics(item.description.toLowerCase());
+      return name.contains(query) || description.contains(query);
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    getItems();
-    List<ItemModel> filteredItems = getFilteredItems();
+    final colors = context.colors;
+    final textStyles = context.textStyles;
+
+    _refreshItems();
+    final filteredItems = _filteredItems;
 
     return Scaffold(
       appBar: AppBar(
-        title: searchBar(context),
-        automaticallyImplyLeading: false, // Add this line to remove the back arrow
-        backgroundColor: AppColors.primary,
-      ),
-      body: Container(
-        color: AppColors.background,
-        child: ListView.builder(
-          itemCount: filteredItems.length,
-          itemBuilder: (context, index) {
-            String parentName = '';
-            if (filteredItems[index].parent != null) {
-              parentName = filteredItems[index].parent!.name;
-              if(filteredItems[index].parent!.parent != null) {
-                parentName = filteredItems[index].parent!.parent!.name + ' > ' + parentName;
-                if(filteredItems[index].parent!.parent!.parent != null) {
-                  parentName = filteredItems[index].parent!.parent!.parent!.name + ' > ' + parentName;
-                }
-              }
-            }
-            return searchEntry(filteredItems, index, parentName, context);
-          },
-        ),
-      ),
-    );
-  }
-
-  ListTile searchEntry(List<ItemModel> filteredItems, int index, String parentName, BuildContext context) {
-    return ListTile(
-      title: Text(filteredItems[index].name, style: const TextStyle(color: AppColors.textPrimary)),
-      subtitle: Text(parentName, style: const TextStyle(color: AppColors.textSecondary)),
-      leading: CircleAvatar(
-        child: filteredItems[index].imagePath == null ? ItemModel.defaultIcons[Random().nextInt(ItemModel.defaultIcons.length)] : null,
-        backgroundImage: filteredItems[index].imagePath != null ? FileImage(File(filteredItems[index].imagePath!)) : null,
-        backgroundColor: AppColors.iconBackground,
-      ),
-      onTap: () async {
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ItemDisplayPage(item: filteredItems[index]),
+        automaticallyImplyLeading: false,
+        toolbarHeight: 96,
+        flexibleSpace: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+            child: _buildSearchBar(context),
           ),
-        );
-        if(result == true){
-          setState(() {
-            getItems();
-            filteredItems = getFilteredItems();
-          });
-        }
-      },
+        ),
+      ),
+      body: filteredItems.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'No items match your search just yet. Try a different keyword or add more details to your items.',
+                  textAlign: TextAlign.center,
+                  style: textStyles.bodyLarge?.copyWith(color: colors.onSurfaceVariant),
+                ),
+              ),
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              itemCount: filteredItems.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final item = filteredItems[index];
+                final parentName = _buildParentLabel(item);
+                return _SearchResultTile(
+                  item: item,
+                  parentName: parentName,
+                  onTap: () async {
+                    Feedback.forTap(context);
+                    await HapticFeedback.selectionClick();
+                    final result = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ItemDisplayPage(item: item),
+                      ),
+                    );
+                    if (result == true) {
+                      setState(() {
+                        _refreshItems();
+                      });
+                    }
+                  },
+                );
+              },
+            ),
     );
   }
 
-  Container searchBar(BuildContext context) {
-    return Container(
-        decoration: const BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Color.fromARGB(80, 177, 185, 192),
-              blurRadius: 40,
-              spreadRadius: 5,
-              offset: Offset(0, 0)
-            )
-          ]
-        ),
-        child: TextField(
-          onChanged: (value) {
-            setState(() {
-              searchValue = value;
-            });
-          },
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Search for an item',
-            hintStyle: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 16
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(20),
-              borderSide: BorderSide.none
-            ),
-            contentPadding: const EdgeInsets.all(10),
-            prefixIcon: GestureDetector(
-              onTap: () {
-                Navigator.pop(context);
+  Widget _buildSearchBar(BuildContext context) {
+    final colors = context.colors;
+    final palette = context.palette;
+    final textStyles = context.textStyles;
+
+    return Material(
+      color: palette.surfaceComponent,
+      borderRadius: BorderRadius.circular(24),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            color: colors.onSurfaceVariant,
+            onPressed: () {
+              Feedback.forTap(context);
+              HapticFeedback.selectionClick();
+              Navigator.pop(context);
+            },
+          ),
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              autofocus: true,
+              onChanged: (value) {
+                setState(() {
+                  searchValue = value;
+                });
               },
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: SvgPicture.asset('assets/icons/Arrow - Left 2.svg'),
-              ),
-            ),
-            suffixIcon: SizedBox(
-              width: 100,
-              child: IntrinsicHeight(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    VerticalDivider(
-                      color: Colors.grey[300],
-                      thickness: 1,
-                      indent: 10,
-                      endIndent: 10,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: SvgPicture.asset('assets/icons/Filter.svg'),
-                    ),
-                  ],
+              decoration: InputDecoration(
+                hintText: 'Search for an item',
+                hintStyle: textStyles.bodyLarge?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+                border: InputBorder.none,
+                suffixIcon: Icon(
+                  Icons.search_rounded,
+                  color: colors.onSurfaceVariant,
                 ),
               ),
             ),
-            fillColor: Colors.white,
-            filled: true
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _buildParentLabel(ItemModel item) {
+    String parentName = '';
+    if (item.parent != null) {
+      parentName = item.parent!.name;
+      if (item.parent!.parent != null) {
+        parentName = '${item.parent!.parent!.name} › $parentName';
+        if (item.parent!.parent!.parent != null) {
+          parentName = '${item.parent!.parent!.parent!.name} › $parentName';
+        }
+      }
+    }
+    return parentName;
+  }
+}
+
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({
+    required this.item,
+    required this.parentName,
+    required this.onTap,
+  });
+
+  final ItemModel item;
+  final String parentName;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final textStyles = context.textStyles;
+    final palette = context.palette;
+
+    return Material(
+      color: palette.surfaceComponent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: Color.alphaBlend(
+                  colors.primary.withOpacity(0.12),
+                  palette.surfaceComponent,
+                ),
+                child: item.imagePath == null
+                    ? Icon(
+                        ItemModel.defaultIcons[item.name.hashCode.abs() % ItemModel.defaultIcons.length],
+                        color: colors.primary,
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(26),
+                        child: Image.file(
+                          File(item.imagePath!),
+                          fit: BoxFit.cover,
+                          width: 52,
+                          height: 52,
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (parentName.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        parentName,
+                        style: textStyles.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
+            ],
           ),
         ),
-      );
+      ),
+    );
   }
 }

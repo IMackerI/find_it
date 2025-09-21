@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:find_it/models/space_model.dart';
-import 'package:flutter/widgets.dart';
+
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
 
 class DrawerWidget extends StatelessWidget {
   final SpaceModel drawer;
@@ -26,69 +27,82 @@ class DrawerWidget extends StatelessWidget {
       top: drawer.position.dy,
       child: LongPressDraggable<SpaceModel>(
         data: drawer,
-        feedback: isEditMode ? Transform(
-          transform: Matrix4.identity()..scale(size),
-          child: visualDraggingDrawer(context),
-        ) : Container(),
-        childWhenDragging: isEditMode ? Container() : null,
+        feedback: isEditMode
+            ? Transform(
+                transform: Matrix4.identity()..scale(size),
+                child: visualDraggingDrawer(context),
+              )
+            : const SizedBox.shrink(),
+        childWhenDragging: isEditMode ? const SizedBox.shrink() : null,
         onDragEnd: (details) {
-          if(isEditMode) onDrawerMoved(details.offset);
+          if (isEditMode) onDrawerMoved(details.offset);
         },
         child: GestureDetector(
-          onTap: () => onDrawerSelected(drawer, false),
-          child: visualDrawer(),
+          onTap: () {
+            Feedback.forTap(context);
+            onDrawerSelected(drawer, false);
+          },
+          child: visualDrawer(context),
         ),
       ),
     );
   }
 
-  Container visualDrawer() {
-    return Container(
+  Widget visualDrawer(BuildContext context) {
+    final colors = context.colors;
+    final palette = context.palette;
+    final background = drawer.isSelected
+        ? Color.alphaBlend(colors.secondary.withOpacity(0.24), palette.surfaceComponent)
+        : Color.alphaBlend(colors.secondary.withOpacity(isEditMode ? 0.18 : 0.12), palette.surfaceComponent);
+    final borderColor = drawer.isSelected ? colors.secondary : colors.outlineVariant;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       width: drawer.size.width,
       height: drawer.size.height,
-      decoration: drawer.isSelected ?
-      BoxDecoration(
-      color: Color(0xFF0606c38).withOpacity(0.7),
-      borderRadius: BorderRadius.circular(5),
-      border: Border.all(
-        color: Color(0xFFbc6c25),
-        width: 1.0,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: borderColor, width: drawer.isSelected ? 1.5 : 1),
       ),
-      ) :
-        BoxDecoration(
-        color: Color(0xFFdda15e).withOpacity(0.7),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
+      alignment: Alignment.center,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Text(
+          drawer.name,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
         ),
       ),
-      child: Center(child: Text(
-        drawer.name, 
-        style:TextStyle(
-            fontSize: 5,
-            fontWeight: FontWeight.w100,
-          ),
-        )),
     );
   }
 
-  Container visualDraggingDrawer(BuildContext context) {
+  Widget visualDraggingDrawer(BuildContext context) {
+    final colors = context.colors;
+    final palette = context.palette;
+    final background = Color.alphaBlend(colors.secondary.withOpacity(0.24), palette.surfaceComponent);
+
     return Container(
       width: drawer.size.width,
       height: drawer.size.height,
       decoration: BoxDecoration(
-        color: Color(0xFFa3b18a).withOpacity(0.7),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
-        ),
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: colors.secondary, width: 1.5),
       ),
-      child: Center(child: Text(
+      alignment: Alignment.center,
+      child: Text(
         drawer.name,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 5, fontWeight: FontWeight.w100),
-        )),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+      ),
     );
   }
 }

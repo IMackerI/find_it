@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:find_it/models/space_model.dart';
 
+import '../models/space_model.dart';
+import '../theme/app_theme.dart';
 import 'drawer_widget.dart';
 
 class RoomWidget extends StatelessWidget {
@@ -40,17 +41,22 @@ class RoomWidget extends StatelessWidget {
         children: [
           LongPressDraggable<SpaceModel>(
             data: room,
-            feedback: isEditMode ? Transform(
-              transform: Matrix4.identity()..scale(size),
-              child: visualDraggingRoom(context),
-            ) : Container(),
-            childWhenDragging: isEditMode ? Container() : null,
+            feedback: isEditMode
+                ? Transform(
+                    transform: Matrix4.identity()..scale(size),
+                    child: visualDraggingRoom(context),
+                  )
+                : const SizedBox.shrink(),
+            childWhenDragging: isEditMode ? const SizedBox.shrink() : null,
             onDragEnd: (details) {
-              if(isEditMode) onRoomMoved(details.offset);
+              if (isEditMode) onRoomMoved(details.offset);
             },
             child: GestureDetector(
-              onTap: () => onRoomSelected(room, true),
-              child: visualRoom(),
+              onTap: () {
+                Feedback.forTap(context);
+                onRoomSelected(room, true);
+              },
+              child: visualRoom(context),
             ),
           ),
           ...room.mySpaces.map((drawer) {
@@ -73,44 +79,65 @@ class RoomWidget extends StatelessWidget {
     );
   }
 
-  Container visualRoom() {
-    return Container(
+  Widget visualRoom(BuildContext context) {
+    final colors = context.colors;
+    final palette = context.palette;
+    final background = room.isSelected
+        ? Color.alphaBlend(colors.primary.withOpacity(0.18), palette.surfaceComponent)
+        : Color.alphaBlend(colors.primary.withOpacity(isEditMode ? 0.12 : 0.08), palette.surfaceComponent);
+    final borderColor = room.isSelected ? colors.primary : colors.outlineVariant;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       width: room.size.width,
       height: room.size.height,
-      decoration: room.isSelected ?
-      BoxDecoration(
-      color: Color(0xFF0606c38).withOpacity(0.3),
-      borderRadius: BorderRadius.circular(5),
-      border: Border.all(
-        color: Color(0xFFbc6c25),
-        width: 1.0,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor, width: room.isSelected ? 2 : 1),
+        boxShadow: room.isSelected
+            ? [
+                BoxShadow(
+                  color: colors.primary.withOpacity(0.25),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : null,
       ),
-      ) :
-        BoxDecoration(
-        color: Color(0xFFdda15e).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
+      alignment: Alignment.center,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Text(
+          room.name,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+          textAlign: TextAlign.center,
         ),
       ),
-      child: Center(child: Text(room.name)),
     );
   }
 
-  Container visualDraggingRoom(BuildContext context) {
+  Widget visualDraggingRoom(BuildContext context) {
+    final colors = context.colors;
+    final palette = context.palette;
+    final background = Color.alphaBlend(colors.primary.withOpacity(0.18), palette.surfaceComponent);
+
     return Container(
       width: room.size.width,
       height: room.size.height,
       decoration: BoxDecoration(
-        color: Color(0xFFa3b18a).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: Color(0xFFbc6c25),
-          width: 1.0,
-        ),
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.primary, width: 1.5),
       ),
-      child: Center(child: Text(room.name, style: Theme.of(context).textTheme.bodyMedium)),
+      alignment: Alignment.center,
+      child: Text(
+        room.name,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+      ),
     );
   }
 }

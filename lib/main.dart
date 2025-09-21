@@ -1,48 +1,59 @@
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:find_it/models/item_model.dart';
+
 import 'models/space_model.dart';
-
 import 'pages/home.dart';
-//import 'pages/search.dart';
-//import 'pages/room.dart';
+import 'theme/app_theme.dart';
 
-void main() async {
-  // Ensure binding
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  WidgetsBinding.instance!.addPostFrameCallback((_) {
-    // Load data after hot restart
-    SpaceModel.loadItems();
-  });
-
-  // Add lifecycle observer
-  WidgetsBinding.instance!.addObserver(MyApp());
-
-  runApp(MyApp());
+  runApp(MyApp(themeController: AppThemeController()));
 }
 
-class MyApp extends StatelessWidget with WidgetsBindingObserver {
-    const MyApp({super.key});
+class MyApp extends StatefulWidget {
+  const MyApp({super.key, required this.themeController});
 
-  // This widget is the root of your application.
+  final AppThemeController themeController;
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SpaceModel.loadItems();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.themeController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(fontFamily: 'Poppins'),
-      home: HomePage(),
+    return AnimatedBuilder(
+      animation: widget.themeController,
+      builder: (context, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: widget.themeController.lightTheme,
+        darkTheme: widget.themeController.darkTheme,
+        themeMode: widget.themeController.themeMode,
+        home: HomePage(themeController: widget.themeController),
+      ),
     );
   }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    switch (state) {
-      case AppLifecycleState.paused:
-        // App is paused, save items
-        SpaceModel.saveItems();
-        break;
-      default:
-        break;
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      SpaceModel.saveItems();
     }
   }
 }
