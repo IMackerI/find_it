@@ -1,0 +1,170 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:find_it/models/item_model.dart';
+import 'package:find_it/models/space_model.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+
+class _FakePathProviderPlatform extends PathProviderPlatform {
+  _FakePathProviderPlatform(this._documentsPath);
+
+  final String _documentsPath;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => _documentsPath;
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late PathProviderPlatform originalPlatform;
+
+  setUp(() {
+    originalPlatform = PathProviderPlatform.instance;
+  });
+
+  tearDown(() {
+    SpaceModel.currentSpaces = [];
+    PathProviderPlatform.instance = originalPlatform;
+  });
+
+  group('SpaceModel serialization', () {
+    test('toJson/fromJson preserves hierarchy and parents', () {
+      final closet = SpaceModel(
+        name: 'Closet',
+        position: const Offset(10, 20),
+        size: const Size(30, 40),
+        items: [
+          ItemModel(
+            name: 'Umbrella',
+            description: 'Black umbrella',
+          ),
+        ],
+      );
+
+      final hallway = SpaceModel(
+        name: 'Hallway',
+        position: const Offset(1, 2),
+        size: const Size(100, 200),
+        mySpaces: [closet],
+        items: [
+          ItemModel(
+            name: 'Shoes',
+            description: 'Running shoes',
+          ),
+        ],
+      );
+
+      final encoded = hallway.toJson();
+      final decoded = SpaceModel.fromJson(encoded);
+
+      expect(decoded.name, hallway.name);
+      expect(decoded.position, hallway.position);
+      expect(decoded.size, hallway.size);
+      expect(decoded.mySpaces, hasLength(1));
+      expect(decoded.items, hasLength(1));
+
+      final decodedCloset = decoded.mySpaces.single;
+      expect(decodedCloset.name, closet.name);
+      expect(decodedCloset.parent, same(decoded));
+      expect(decodedCloset.position, closet.position);
+      expect(decodedCloset.size, closet.size);
+
+      final decodedHallwayItem = decoded.items.single;
+      expect(decodedHallwayItem.name, 'Shoes');
+      expect(decodedHallwayItem.parent, same(decoded));
+
+      final decodedClosetItem = decodedCloset.items.single;
+      expect(decodedClosetItem.name, 'Umbrella');
+      expect(decodedClosetItem.parent, same(decodedCloset));
+    });
+
+    test('assignParents attaches parent references recursively', () {
+      final drawer = SpaceModel(
+        name: 'Drawer',
+        items: [
+          ItemModel(name: 'Keys', description: 'Car keys'),
+        ],
+      );
+
+      final bedroom = SpaceModel(
+        name: 'Bedroom',
+        mySpaces: [drawer],
+        items: [
+          ItemModel(name: 'Lamp', description: 'Desk lamp'),
+        ],
+      );
+
+      final apartment = SpaceModel(
+        name: 'Apartment',
+        mySpaces: [bedroom],
+      );
+
+      apartment.assignParents();
+
+      expect(apartment.parent, isNull);
+      final assignedBedroom = apartment.mySpaces.single;
+      expect(assignedBedroom.parent, same(apartment));
+
+      final assignedDrawer = assignedBedroom.mySpaces.single;
+      expect(assignedDrawer.parent, same(assignedBedroom));
+
+      final bedroomItem = assignedBedroom.items.single;
+      expect(bedroomItem.parent, same(assignedBedroom));
+
+      final drawerItem = assignedDrawer.items.single;
+      expect(drawerItem.parent, same(assignedDrawer));
+    });
+
+    test('saveItems and loadItems persist spaces to disk', () async {
+      final tempDir = await Directory.systemTemp.createTemp('find_it_test');
+      PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
+
+      final deskDrawer = SpaceModel(
+        name: 'Desk drawer',
+        items: [
+          ItemModel(name: 'Notebook', description: 'Project notes'),
+        ],
+      );
+
+      final office = SpaceModel(
+        name: 'Home office',
+        mySpaces: [deskDrawer],
+        items: [
+          ItemModel(name: 'Laptop', description: 'Work laptop'),
+        ],
+      );
+
+      SpaceModel.currentSpaces = [office];
+      office.assignParents();
+
+      await SpaceModel.saveItems();
+
+      final savedFile = File('${tempDir.path}/data.json');
+      expect(savedFile.existsSync(), isTrue);
+
+      final dynamic savedJson = jsonDecode(await savedFile.readAsString());
+      expect(savedJson, isA<List>());
+      expect(savedJson, hasLength(1));
+
+      SpaceModel.currentSpaces = [];
+
+      await SpaceModel.loadItems();
+
+      expect(SpaceModel.currentSpaces, hasLength(1));
+      final loadedOffice = SpaceModel.currentSpaces.single;
+      expect(loadedOffice.name, office.name);
+      expect(loadedOffice.items.single.name, 'Laptop');
+      expect(loadedOffice.items.single.parent, same(loadedOffice));
+      final loadedDrawer = loadedOffice.mySpaces.single;
+      expect(loadedDrawer.name, deskDrawer.name);
+      expect(loadedDrawer.parent, same(loadedOffice));
+      expect(loadedDrawer.items.single.name, 'Notebook');
+      expect(loadedDrawer.items.single.parent, same(loadedDrawer));
+
+      await tempDir.delete(recursive: true);
+    });
+  });
+}
