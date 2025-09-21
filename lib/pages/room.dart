@@ -125,8 +125,6 @@ class _RoomPageState extends State<RoomPage> {
       },
     );
 
-    controller.dispose();
-
     if (!mounted || roomName == null || roomName.trim().isEmpty) {
       return;
     }
@@ -613,7 +611,6 @@ class _RoomPageState extends State<RoomPage> {
         );
       },
     );
-    controller.dispose();
     if (drawerName != null && drawerName.isNotEmpty) {
       setState(() {
         final newDrawer = SpaceModel(
@@ -660,7 +657,6 @@ class _RoomPageState extends State<RoomPage> {
         );
       },
     );
-    controller.dispose();
     if (newName != null && newName.isNotEmpty) {
       setState(() {
         selected!.name = newName;
