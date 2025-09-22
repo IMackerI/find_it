@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'data/spaces_repository.dart';
 import 'models/space_model.dart';
 import 'pages/home.dart';
 import 'theme/app_theme.dart';
@@ -9,6 +10,7 @@ import 'theme/theme_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SpaceModel.configureStorage(SpacesRepository());
   await SpaceModel.loadItems();
 
   final themeController = ThemeController();
