@@ -217,4 +217,12 @@ class LocalDatabase {
 
     return roots;
   }
+
+  Future<void> dispose() async {
+    final db = _database;
+    if (db != null) {
+      await db.close();
+      _database = null;
+    }
+  }
 }

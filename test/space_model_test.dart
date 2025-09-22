@@ -1,11 +1,14 @@
-import 'dart:convert';
 import 'dart:io';
 
+import 'package:find_it/data/local_database.dart';
+import 'package:find_it/data/spaces_repository.dart';
 import 'package:find_it/models/item_model.dart';
 import 'package:find_it/models/space_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this._documentsPath);
@@ -18,6 +21,7 @@ class _FakePathProviderPlatform extends PathProviderPlatform {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  sqfliteFfiInit();
 
   late PathProviderPlatform originalPlatform;
 
@@ -118,9 +122,12 @@ void main() {
       expect(drawerItem.parent, same(assignedDrawer));
     });
 
-    test('saveItems and loadItems persist spaces to disk', () async {
+    test('saveItems and loadItems persist spaces via sqlite storage', () async {
       final tempDir = await Directory.systemTemp.createTemp('find_it_test');
       PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
+
+      final database = LocalDatabase(factory: databaseFactoryFfi);
+      SpaceModel.configureStorage(SpacesRepository(database: database));
 
       final deskDrawer = SpaceModel(
         name: 'Desk drawer',
@@ -140,14 +147,11 @@ void main() {
       SpaceModel.currentSpaces = [office];
       office.assignParents();
 
-      await SpaceModel.saveItems();
+      final success = await SpaceModel.saveItems();
+      expect(success, isTrue);
 
-      final savedFile = File('${tempDir.path}/data.json');
-      expect(savedFile.existsSync(), isTrue);
-
-      final dynamic savedJson = jsonDecode(await savedFile.readAsString());
-      expect(savedJson, isA<List>());
-      expect(savedJson, hasLength(1));
+      final savedDatabase = File(p.join(tempDir.path, 'spaces.db'));
+      expect(savedDatabase.existsSync(), isTrue);
 
       SpaceModel.currentSpaces = [];
 
@@ -164,6 +168,7 @@ void main() {
       expect(loadedDrawer.items.single.name, 'Notebook');
       expect(loadedDrawer.items.single.parent, same(loadedDrawer));
 
+      await database.dispose();
       await tempDir.delete(recursive: true);
     });
   });
