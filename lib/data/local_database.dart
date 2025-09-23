@@ -1,381 +1,358 @@
-import 'dart:convert';
+import 'dart:async';
 
-import 'package:flutter/widgets.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'package:sqflite/sqflite.dart';
+/// Signature for functions that provide the current [DateTime].
+typedef DateTimeProvider = DateTime Function();
 
-import '../models/item_model.dart';
-import '../models/space_member.dart';
-import '../models/space_model.dart';
-import '../models/user_profile.dart';
+/// The type of mutation represented inside the local outbox.
+enum MutationType { upsert, delete }
 
+/// A lightweight local database that keeps track of domain records, metadata
+/// about their changes and an outbox with pending mutations to be processed by
+/// a sync engine.
 class LocalDatabase {
-  LocalDatabase({DatabaseFactory? factory})
-      : _databaseFactory = factory ?? databaseFactory;
+  LocalDatabase({DateTimeProvider? clock})
+      : _clock = clock ?? DateTime.now,
+        _state = _DatabaseState();
 
-  final DatabaseFactory _databaseFactory;
-  Database? _database;
+  /// Name of the table that stores space records.
+  static const String spacesTable = 'spaces';
 
-  static const _dbName = 'spaces.db';
-  static const _dbVersion = 2;
+  /// Name of the outbox table that stores pending mutations.
+  static const String outboxTable = 'outbox';
 
-  Future<Database> _openDatabase() async {
-    final existing = _database;
-    if (existing != null) {
-      return existing;
+  final DateTimeProvider _clock;
+  _DatabaseState _state;
+  bool _isInTransaction = false;
+
+  /// Runs [action] in a transactional context. All mutations performed inside
+  /// the callback are committed atomically. If an error is thrown the state is
+  /// rolled back to the point before the transaction started.
+  Future<T> transaction<T>(Future<T> Function(DatabaseTransaction txn) action) async {
+    if (_isInTransaction) {
+      throw StateError('Nested transactions are not supported.');
     }
 
-    final directory = await getApplicationDocumentsDirectory();
-    final path = p.join(directory.path, _dbName);
-    final db = await _databaseFactory.openDatabase(
-      path,
-      options: OpenDatabaseOptions(
-        version: _dbVersion,
-        onConfigure: (db) async {
-          await db.execute('PRAGMA foreign_keys = ON');
-        },
-        onCreate: (db, version) async {
-          await db.execute('''
-            CREATE TABLE spaces (
-              id TEXT PRIMARY KEY,
-              name TEXT NOT NULL,
-              position_dx REAL NOT NULL,
-              position_dy REAL NOT NULL,
-              size_width REAL NOT NULL,
-              size_height REAL NOT NULL,
-              parent_id TEXT,
-              updated_at INTEGER NOT NULL,
-              version INTEGER NOT NULL,
-              is_deleted INTEGER NOT NULL
-            );
-          ''');
-
-          await db.execute('''
-            CREATE TABLE items (
-              id TEXT PRIMARY KEY,
-              space_id TEXT NOT NULL,
-              name TEXT NOT NULL,
-              description TEXT NOT NULL,
-              location_specification TEXT,
-              tags_json TEXT,
-              image_path TEXT,
-              updated_at INTEGER NOT NULL,
-              version INTEGER NOT NULL,
-              is_deleted INTEGER NOT NULL,
-              FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE
-            );
-          ''');
-
-          await db.execute(
-            'CREATE INDEX idx_items_space_id ON items(space_id);',
-          );
-
-          await _createSharingTables(db);
-        },
-        onUpgrade: (db, oldVersion, newVersion) async {
-          if (oldVersion < 2) {
-            await _createSharingTables(db);
-          }
-        },
-      ),
-    );
-    _database = db;
-    return db;
+    _isInTransaction = true;
+    final _DatabaseState workingState = _state.clone();
+    final DatabaseTransaction transaction =
+        DatabaseTransaction._(workingState, _clock);
+    try {
+      final T result = await action(transaction);
+      _state = workingState;
+      return result;
+    } finally {
+      _isInTransaction = false;
+    }
   }
 
-  static Future<void> _createSharingTables(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        display_name TEXT,
-        avatar_url TEXT,
-        is_current INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        version INTEGER NOT NULL,
-        is_deleted INTEGER NOT NULL
-      );
-    ''');
-
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS space_memberships (
-        space_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        joined_at INTEGER,
-        attachment_visibility TEXT NOT NULL,
-        updated_at INTEGER NOT NULL,
-        version INTEGER NOT NULL,
-        is_deleted INTEGER NOT NULL,
-        PRIMARY KEY (space_id, user_id),
-        FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-      );
-    ''');
-
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_space_memberships_space_id ON space_memberships(space_id);',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_space_memberships_user_id ON space_memberships(user_id);',
-    );
-  }
-
-  Future<void> replaceAllSpaces(List<SpaceModel> spaces) async {
-    final db = await _openDatabase();
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-
-    final usersById = <String, UserProfile>{};
-
-    void collectMembers(SpaceModel space) {
-      for (final member in space.collaborators) {
-        usersById[member.user.id] = member.user;
-      }
-      for (final child in space.mySpaces) {
-        collectMembers(child);
-      }
-    }
-
-    for (final root in spaces) {
-      collectMembers(root);
-    }
-
-    await db.transaction((txn) async {
-      await txn.delete('space_memberships');
-      await txn.delete('items');
-      await txn.delete('spaces');
-      await txn.delete('users');
-
-      for (final user in usersById.values) {
-        await txn.insert(
-          'users',
-          {
-            'id': user.id,
-            'email': user.email,
-            'display_name': user.displayName,
-            'avatar_url': user.avatarUrl,
-            'is_current': user.isCurrentUser ? 1 : 0,
-            'updated_at': timestamp,
-            'version': 0,
-            'is_deleted': 0,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      Future<void> persistSpace(SpaceModel space, String? parentId) async {
-        await txn.insert(
-          'spaces',
-          {
-            'id': space.id,
-            'name': space.name,
-            'position_dx': space.position.dx,
-            'position_dy': space.position.dy,
-            'size_width': space.size.width,
-            'size_height': space.size.height,
-            'parent_id': parentId,
-            'updated_at': timestamp,
-            'version': 0,
-            'is_deleted': 0,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-
-        for (final item in space.items) {
-          await txn.insert(
-            'items',
-            {
-              'id': item.id,
-              'space_id': space.id,
-              'name': item.name,
-              'description': item.description,
-              'location_specification': item.locationSpecification,
-              'tags_json': item.tags == null ? null : jsonEncode(item.tags),
-              'image_path': item.imagePath,
-              'updated_at': timestamp,
-              'version': 0,
-              'is_deleted': 0,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-
-        for (final member in space.collaborators) {
-          await txn.insert(
-            'space_memberships',
-            {
-              'space_id': space.id,
-              'user_id': member.user.id,
-              'role': member.role.name,
-              'joined_at': member.joinedAt?.millisecondsSinceEpoch,
-              'attachment_visibility':
-                  member.defaultAttachmentVisibility.name,
-              'updated_at': timestamp,
-              'version': 0,
-              'is_deleted': 0,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-
-        for (final child in space.mySpaces) {
-          await persistSpace(child, space.id);
-        }
-      }
-
-      for (final root in spaces) {
-        await persistSpace(root, null);
-      }
+  /// Persists a record for the space identified by [id]. The record will have
+  /// its metadata updated according to the mutation rules. When called outside a
+  /// transaction a dedicated transaction will be opened.
+  Future<LocalRecord> upsertSpace({
+    required String id,
+    required Map<String, dynamic> data,
+  }) {
+    return transaction((DatabaseTransaction txn) async {
+      return txn.upsertSpace(id: id, data: data);
     });
   }
 
-  Future<List<SpaceModel>> loadSpaces() async {
-    final db = await _openDatabase();
+  /// Marks the space identified by [id] as deleted.
+  Future<LocalRecord> markSpaceDeleted(String id) {
+    return transaction((DatabaseTransaction txn) async {
+      return txn.markSpaceDeleted(id);
+    });
+  }
 
-    final spaceRows = await db.query(
-      'spaces',
-      where: 'is_deleted = ?',
-      whereArgs: [0],
-    );
-
-    if (spaceRows.isEmpty) {
-      return [];
-    }
-
-    final itemRows = await db.query(
-      'items',
-      where: 'is_deleted = ?',
-      whereArgs: [0],
-    );
-
-    final userRows = await db.query(
-      'users',
-      where: 'is_deleted = ?',
-      whereArgs: [0],
-    );
-
-    final membershipRows = await db.query(
-      'space_memberships',
-      where: 'is_deleted = ?',
-      whereArgs: [0],
-    );
-
-    final spacesById = <String, SpaceModel>{};
-    for (final row in spaceRows) {
-      final space = SpaceModel(
-        id: row['id'] as String?,
-        name: row['name'] as String,
-        position: Offset(
-          (row['position_dx'] as num).toDouble(),
-          (row['position_dy'] as num).toDouble(),
-        ),
-        size: Size(
-          (row['size_width'] as num).toDouble(),
-          (row['size_height'] as num).toDouble(),
-        ),
-        mySpaces: const [],
-        items: const [],
+  /// Adds a mutation to the outbox outside of a broader transaction.
+  Future<OutboxEntry> appendOutboxMutation({
+    required String table,
+    required String recordId,
+    required MutationType type,
+    required Map<String, dynamic> record,
+  }) {
+    return transaction((DatabaseTransaction txn) async {
+      return txn.enqueueMutation(
+        table: table,
+        recordId: recordId,
+        type: type,
+        record: record,
       );
-      spacesById[space.id] = space;
-    }
+    });
+  }
 
-    for (final row in spaceRows) {
-      final id = row['id'] as String;
-      final parentId = row['parent_id'] as String?;
-      final space = spacesById[id];
-      if (space == null || parentId == null) {
-        continue;
-      }
-      final parent = spacesById[parentId];
-      if (parent != null) {
-        space.parent = parent;
-        parent.mySpaces.add(space);
-      }
-    }
+  /// Returns all pending mutations in the order they were enqueued.
+  Future<List<OutboxEntry>> getPendingMutations() async {
+    final List<OutboxEntry> entries = _state.outbox.values.toList()
+      ..sort((OutboxEntry a, OutboxEntry b) => a.id.compareTo(b.id));
+    return List<OutboxEntry>.unmodifiable(entries);
+  }
 
-    for (final row in itemRows) {
-      final parentId = row['space_id'] as String;
-      final parent = spacesById[parentId];
-      if (parent == null) {
-        continue;
-      }
-      final tagsJson = row['tags_json'] as String?;
-      final tags = tagsJson == null
-          ? null
-          : List<String>.from(jsonDecode(tagsJson) as List<dynamic>);
-      final item = ItemModel(
-        id: row['id'] as String?,
-        name: row['name'] as String,
-        description: row['description'] as String,
-        locationSpecification: row['location_specification'] as String?,
-        tags: tags,
-        imagePath: row['image_path'] as String?,
-        parent: parent,
-      );
-      parent.items.add(item);
-    }
+  /// Removes the outbox entries identified by [ids]. The operation is executed
+  /// inside a transaction to guarantee atomic behaviour.
+  Future<void> clearOutboxEntries(Iterable<int> ids) {
+    return transaction((DatabaseTransaction txn) async {
+      txn.clearOutboxEntries(ids);
+    });
+  }
 
-    final usersById = <String, UserProfile>{};
-    for (final row in userRows) {
-      final id = row['id'] as String;
-      usersById[id] = UserProfile(
+  /// Retrieves an immutable view of the space record identified by [id].
+  Future<LocalRecord?> getSpaceRecord(String id) async {
+    final _MutableRecord? record = _state.spaces[id];
+    return record?.toImmutable();
+  }
+
+  /// Converts a [Map] that potentially contains non-string keys into a
+  /// canonical `Map<String, dynamic>` with recursively cloned values.
+  static Map<String, dynamic> normalizeDataMap(Map<dynamic, dynamic> map) {
+    return _cloneMap(map);
+  }
+}
+
+/// A view over the database state used during transactions. All mutations are
+/// performed against a working copy until the transaction commits.
+class DatabaseTransaction {
+  DatabaseTransaction._(this._state, this._clock);
+
+  final _DatabaseState _state;
+  final DateTimeProvider _clock;
+
+  /// Upserts the space identified by [id] with the provided [data]. Metadata
+  /// fields are updated on every mutation.
+  LocalRecord upsertSpace({
+    required String id,
+    required Map<String, dynamic> data,
+  }) {
+    final Map<String, dynamic> normalizedData = _cloneMap(data);
+    final DateTime now = _clock();
+    final _MutableRecord? existing = _state.spaces[id];
+
+    if (existing == null) {
+      final _MutableRecord record = _MutableRecord(
         id: id,
-        email: row['email'] as String,
-        displayName: row['display_name'] as String?,
-        avatarUrl: row['avatar_url'] as String?,
-        isCurrentUser: (row['is_current'] as int) == 1,
+        data: normalizedData,
+        updatedAt: now,
+        version: 1,
+        isDeleted: false,
       );
+      _state.spaces[id] = record;
+      return record.toImmutable();
     }
 
-    for (final row in membershipRows) {
-      final spaceId = row['space_id'] as String;
-      final space = spacesById[spaceId];
-      if (space == null) {
-        continue;
-      }
+    existing
+      ..data = normalizedData
+      ..updatedAt = now
+      ..version = existing.version + 1
+      ..isDeleted = false;
 
-      final userId = row['user_id'] as String;
-      final user = usersById[userId];
-      if (user == null) {
-        continue;
-      }
-
-      final roleValue = row['role'] as String;
-      final attachmentValue = row['attachment_visibility'] as String;
-      final joinedAtValue = row['joined_at'] as int?;
-      space.collaborators.add(
-        SpaceMember(
-          user: user,
-          role: spaceRoleFromName(roleValue),
-          joinedAt: joinedAtValue == null
-              ? null
-              : DateTime.fromMillisecondsSinceEpoch(joinedAtValue),
-          defaultAttachmentVisibility:
-              attachmentVisibilityFromName(attachmentValue),
-        ),
-      );
-    }
-
-    final roots = <SpaceModel>[];
-    for (final space in spacesById.values) {
-      if (space.parent == null) {
-        roots.add(space);
-      }
-    }
-
-    for (final space in roots) {
-      space.assignParents();
-    }
-
-    return roots;
+    return existing.toImmutable();
   }
 
-  Future<void> dispose() async {
-    final db = _database;
-    if (db != null) {
-      await db.close();
-      _database = null;
+  /// Marks the space identified by [id] as deleted and increments its version.
+  LocalRecord markSpaceDeleted(String id) {
+    final DateTime now = _clock();
+    final _MutableRecord? existing = _state.spaces[id];
+
+    if (existing == null) {
+      final _MutableRecord record = _MutableRecord(
+        id: id,
+        data: const <String, dynamic>{},
+        updatedAt: now,
+        version: 1,
+        isDeleted: true,
+      );
+      _state.spaces[id] = record;
+      return record.toImmutable();
+    }
+
+    existing
+      ..updatedAt = now
+      ..version = existing.version + 1
+      ..isDeleted = true;
+
+    return existing.toImmutable();
+  }
+
+  /// Enqueues a new mutation in the outbox and returns the resulting entry.
+  OutboxEntry enqueueMutation({
+    required String table,
+    required String recordId,
+    required MutationType type,
+    required Map<String, dynamic> record,
+  }) {
+    final int id = _state.nextOutboxId++;
+    final DateTime createdAt = _clock();
+    final OutboxEntry entry = OutboxEntry(
+      id: id,
+      table: table,
+      recordId: recordId,
+      type: type,
+      record: record,
+      createdAt: createdAt,
+    );
+    _state.outbox[id] = entry;
+    return entry;
+  }
+
+  /// Removes the outbox entries identified by [ids]. If any of the identifiers
+  /// does not exist the operation will throw a [StateError] and no entries are
+  /// removed.
+  void clearOutboxEntries(Iterable<int> ids) {
+    final List<int> idList = List<int>.from(ids);
+    for (final int id in idList) {
+      if (!_state.outbox.containsKey(id)) {
+        throw StateError('Outbox entry $id does not exist.');
+      }
+    }
+    for (final int id in idList) {
+      _state.outbox.remove(id);
     }
   }
+}
+
+/// Immutable view of a locally stored record.
+class LocalRecord {
+  LocalRecord({
+    required this.id,
+    required Map<String, dynamic> data,
+    required this.updatedAt,
+    required this.version,
+    required this.isDeleted,
+  }) : data = Map<String, dynamic>.unmodifiable(_cloneMap(data));
+
+  final String id;
+  final Map<String, dynamic> data;
+  final DateTime updatedAt;
+  final int version;
+  final bool isDeleted;
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'id': id,
+      'data': _cloneMap(data),
+      'updated_at': updatedAt,
+      'version': version,
+      'is_deleted': isDeleted,
+    };
+  }
+}
+
+/// Entry inside the outbox with metadata about the pending mutation.
+class OutboxEntry {
+  OutboxEntry({
+    required this.id,
+    required this.table,
+    required this.recordId,
+    required this.type,
+    required Map<String, dynamic> record,
+    required this.createdAt,
+  }) : record = Map<String, dynamic>.unmodifiable(_cloneMap(record));
+
+  final int id;
+  final String table;
+  final String recordId;
+  final MutationType type;
+  final Map<String, dynamic> record;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'id': id,
+      'table': table,
+      'record_id': recordId,
+      'mutation_type': type.name,
+      'record': _cloneMap(record),
+      'created_at': createdAt,
+    };
+  }
+}
+
+class _DatabaseState {
+  _DatabaseState({
+    Map<String, _MutableRecord>? spaces,
+    Map<int, OutboxEntry>? outbox,
+    this.nextOutboxId = 1,
+  })  : spaces = spaces ?? <String, _MutableRecord>{},
+        outbox = outbox ?? <int, OutboxEntry>{};
+
+  final Map<String, _MutableRecord> spaces;
+  final Map<int, OutboxEntry> outbox;
+  int nextOutboxId;
+
+  _DatabaseState clone() {
+    final Map<String, _MutableRecord> clonedSpaces =
+        <String, _MutableRecord>{};
+    spaces.forEach((String key, _MutableRecord value) {
+      clonedSpaces[key] = value.copy();
+    });
+    final Map<int, OutboxEntry> clonedOutbox = <int, OutboxEntry>{};
+    outbox.forEach((int key, OutboxEntry value) {
+      clonedOutbox[key] = value;
+    });
+    return _DatabaseState(
+      spaces: clonedSpaces,
+      outbox: clonedOutbox,
+      nextOutboxId: nextOutboxId,
+    );
+  }
+}
+
+class _MutableRecord {
+  _MutableRecord({
+    required this.id,
+    required Map<String, dynamic> data,
+    required this.updatedAt,
+    required this.version,
+    required this.isDeleted,
+  }) : data = _cloneMap(data);
+
+  final String id;
+  Map<String, dynamic> data;
+  DateTime updatedAt;
+  int version;
+  bool isDeleted;
+
+  _MutableRecord copy() {
+    return _MutableRecord(
+      id: id,
+      data: data,
+      updatedAt: updatedAt,
+      version: version,
+      isDeleted: isDeleted,
+    );
+  }
+
+  LocalRecord toImmutable() {
+    return LocalRecord(
+      id: id,
+      data: data,
+      updatedAt: updatedAt,
+      version: version,
+      isDeleted: isDeleted,
+    );
+  }
+}
+
+dynamic _cloneValue(dynamic value) {
+  if (value is Map) {
+    return _cloneMap(Map<dynamic, dynamic>.from(value));
+  }
+  if (value is Iterable) {
+    return value.map(_cloneValue).toList();
+  }
+  if (value is DateTime) {
+    return DateTime.fromMillisecondsSinceEpoch(
+      value.millisecondsSinceEpoch,
+      isUtc: value.isUtc,
+    );
+  }
+  return value;
+}
+
+Map<String, dynamic> _cloneMap(Map<dynamic, dynamic> map) {
+  final Map<String, dynamic> result = <String, dynamic>{};
+  map.forEach((dynamic key, dynamic value) {
+    result[key.toString()] = _cloneValue(value);
+  });
+  return result;
 }
