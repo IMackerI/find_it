@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:find_it/data/local_database.dart';
 import 'package:find_it/models/item_model.dart';
+import 'package:find_it/models/space_member.dart';
 import 'package:find_it/models/space_model.dart';
+import 'package:find_it/models/user_profile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -42,12 +44,32 @@ void main() {
   });
 
   test('round-trips spaces and items while restoring parents', () async {
+    final owner = UserProfile(
+      id: 'user-owner',
+      email: 'owner@example.com',
+      displayName: 'Owner',
+      isCurrentUser: true,
+    );
+
+    final viewer = UserProfile(
+      id: 'user-viewer',
+      email: 'viewer@example.com',
+      displayName: 'Viewer',
+    );
+
     final toolbox = SpaceModel(
       name: 'Toolbox',
       position: const Offset(5, 8),
       size: const Size(60, 40),
       items: [
         ItemModel(name: 'Hammer', description: 'Claw hammer'),
+      ],
+      collaborators: [
+        SpaceMember(
+          user: owner,
+          role: SpaceRole.editor,
+          defaultAttachmentVisibility: AttachmentVisibility.private,
+        ),
       ],
     );
 
@@ -58,6 +80,18 @@ void main() {
       mySpaces: [toolbox],
       items: [
         ItemModel(name: 'Bike', description: 'Mountain bike'),
+      ],
+      collaborators: [
+        SpaceMember(
+          user: owner,
+          role: SpaceRole.owner,
+          joinedAt: DateTime.utc(2023, 1, 10),
+        ),
+        SpaceMember(
+          user: viewer,
+          role: SpaceRole.viewer,
+          defaultAttachmentVisibility: AttachmentVisibility.private,
+        ),
       ],
     );
 
@@ -77,6 +111,21 @@ void main() {
     expect(loadedGarage.items.single.name, 'Bike');
     expect(loadedGarage.items.single.parent, same(loadedGarage));
 
+    expect(loadedGarage.collaborators, hasLength(2));
+    final loadedOwner = loadedGarage.collaborators
+        .firstWhere((member) => member.role == SpaceRole.owner);
+    expect(loadedOwner.user.email, owner.email);
+    expect(loadedOwner.user.isCurrentUser, isTrue);
+    expect(loadedOwner.joinedAt?.toUtc(), DateTime.utc(2023, 1, 10));
+    expect(loadedOwner.defaultAttachmentVisibility,
+        AttachmentVisibility.shared);
+
+    final loadedViewer = loadedGarage.collaborators
+        .firstWhere((member) => member.role == SpaceRole.viewer);
+    expect(loadedViewer.user.email, viewer.email);
+    expect(loadedViewer.defaultAttachmentVisibility,
+        AttachmentVisibility.private);
+
     final loadedToolbox = loadedGarage.mySpaces.single;
     expect(loadedToolbox.name, toolbox.name);
     expect(loadedToolbox.parent, same(loadedGarage));
@@ -84,5 +133,9 @@ void main() {
     expect(loadedToolbox.size, toolbox.size);
     expect(loadedToolbox.items.single.name, 'Hammer');
     expect(loadedToolbox.items.single.parent, same(loadedToolbox));
+    expect(loadedToolbox.collaborators, hasLength(1));
+    expect(loadedToolbox.collaborators.single.role, SpaceRole.editor);
+    expect(loadedToolbox.collaborators.single.defaultAttachmentVisibility,
+        AttachmentVisibility.private);
   });
 }
