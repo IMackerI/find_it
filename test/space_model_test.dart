@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:find_it/data/local_database.dart';
 import 'package:find_it/data/spaces_repository.dart';
 import 'package:find_it/models/item_model.dart';
+import 'package:find_it/models/space_member.dart';
 import 'package:find_it/models/space_model.dart';
+import 'package:find_it/models/user_profile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -36,6 +38,12 @@ void main() {
 
   group('SpaceModel serialization', () {
     test('toJson/fromJson preserves hierarchy and parents', () {
+      final owner = UserProfile(
+        id: 'user-owner',
+        email: 'owner@example.com',
+        displayName: 'Owner',
+      );
+
       final closet = SpaceModel(
         name: 'Closet',
         position: const Offset(10, 20),
@@ -59,6 +67,13 @@ void main() {
             description: 'Running shoes',
           ),
         ],
+        collaborators: [
+          SpaceMember(
+            user: owner,
+            role: SpaceRole.owner,
+            joinedAt: DateTime.utc(2023, 4, 5),
+          ),
+        ],
       );
 
       final encoded = hallway.toJson();
@@ -69,6 +84,11 @@ void main() {
       expect(decoded.size, hallway.size);
       expect(decoded.mySpaces, hasLength(1));
       expect(decoded.items, hasLength(1));
+      expect(decoded.collaborators, hasLength(1));
+      expect(decoded.collaborators.single.user.email, owner.email);
+      expect(decoded.collaborators.single.role, SpaceRole.owner);
+      expect(decoded.collaborators.single.joinedAt?.toUtc(),
+          DateTime.utc(2023, 4, 5));
 
       final decodedCloset = decoded.mySpaces.single;
       expect(decodedCloset.name, closet.name);

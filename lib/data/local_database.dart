@@ -6,7 +6,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/item_model.dart';
+import '../models/space_member.dart';
 import '../models/space_model.dart';
+import '../models/user_profile.dart';
 
 class LocalDatabase {
   LocalDatabase({DatabaseFactory? factory})
@@ -16,6 +18,7 @@ class LocalDatabase {
   Database? _database;
 
   static const _dbName = 'spaces.db';
+  static const _dbVersion = 2;
 
   Future<Database> _openDatabase() async {
     final existing = _database;
@@ -28,7 +31,7 @@ class LocalDatabase {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: _dbVersion,
         onConfigure: (db) async {
           await db.execute('PRAGMA foreign_keys = ON');
         },
@@ -67,6 +70,13 @@ class LocalDatabase {
           await db.execute(
             'CREATE INDEX idx_items_space_id ON items(space_id);',
           );
+
+          await _createSharingTables(db);
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await _createSharingTables(db);
+          }
         },
       ),
     );
@@ -74,13 +84,85 @@ class LocalDatabase {
     return db;
   }
 
+  static Future<void> _createSharingTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        display_name TEXT,
+        avatar_url TEXT,
+        is_current INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        is_deleted INTEGER NOT NULL
+      );
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS space_memberships (
+        space_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        joined_at INTEGER,
+        attachment_visibility TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        is_deleted INTEGER NOT NULL,
+        PRIMARY KEY (space_id, user_id),
+        FOREIGN KEY(space_id) REFERENCES spaces(id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    ''');
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_space_memberships_space_id ON space_memberships(space_id);',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_space_memberships_user_id ON space_memberships(user_id);',
+    );
+  }
+
   Future<void> replaceAllSpaces(List<SpaceModel> spaces) async {
     final db = await _openDatabase();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
 
+    final usersById = <String, UserProfile>{};
+
+    void collectMembers(SpaceModel space) {
+      for (final member in space.collaborators) {
+        usersById[member.user.id] = member.user;
+      }
+      for (final child in space.mySpaces) {
+        collectMembers(child);
+      }
+    }
+
+    for (final root in spaces) {
+      collectMembers(root);
+    }
+
     await db.transaction((txn) async {
+      await txn.delete('space_memberships');
       await txn.delete('items');
       await txn.delete('spaces');
+      await txn.delete('users');
+
+      for (final user in usersById.values) {
+        await txn.insert(
+          'users',
+          {
+            'id': user.id,
+            'email': user.email,
+            'display_name': user.displayName,
+            'avatar_url': user.avatarUrl,
+            'is_current': user.isCurrentUser ? 1 : 0,
+            'updated_at': timestamp,
+            'version': 0,
+            'is_deleted': 0,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
 
       Future<void> persistSpace(SpaceModel space, String? parentId) async {
         await txn.insert(
@@ -119,6 +201,24 @@ class LocalDatabase {
           );
         }
 
+        for (final member in space.collaborators) {
+          await txn.insert(
+            'space_memberships',
+            {
+              'space_id': space.id,
+              'user_id': member.user.id,
+              'role': member.role.name,
+              'joined_at': member.joinedAt?.millisecondsSinceEpoch,
+              'attachment_visibility':
+                  member.defaultAttachmentVisibility.name,
+              'updated_at': timestamp,
+              'version': 0,
+              'is_deleted': 0,
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+
         for (final child in space.mySpaces) {
           await persistSpace(child, space.id);
         }
@@ -145,6 +245,18 @@ class LocalDatabase {
 
     final itemRows = await db.query(
       'items',
+      where: 'is_deleted = ?',
+      whereArgs: [0],
+    );
+
+    final userRows = await db.query(
+      'users',
+      where: 'is_deleted = ?',
+      whereArgs: [0],
+    );
+
+    final membershipRows = await db.query(
+      'space_memberships',
       where: 'is_deleted = ?',
       whereArgs: [0],
     );
@@ -202,6 +314,47 @@ class LocalDatabase {
         parent: parent,
       );
       parent.items.add(item);
+    }
+
+    final usersById = <String, UserProfile>{};
+    for (final row in userRows) {
+      final id = row['id'] as String;
+      usersById[id] = UserProfile(
+        id: id,
+        email: row['email'] as String,
+        displayName: row['display_name'] as String?,
+        avatarUrl: row['avatar_url'] as String?,
+        isCurrentUser: (row['is_current'] as int) == 1,
+      );
+    }
+
+    for (final row in membershipRows) {
+      final spaceId = row['space_id'] as String;
+      final space = spacesById[spaceId];
+      if (space == null) {
+        continue;
+      }
+
+      final userId = row['user_id'] as String;
+      final user = usersById[userId];
+      if (user == null) {
+        continue;
+      }
+
+      final roleValue = row['role'] as String;
+      final attachmentValue = row['attachment_visibility'] as String;
+      final joinedAtValue = row['joined_at'] as int?;
+      space.collaborators.add(
+        SpaceMember(
+          user: user,
+          role: spaceRoleFromName(roleValue),
+          joinedAt: joinedAtValue == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(joinedAtValue),
+          defaultAttachmentVisibility:
+              attachmentVisibilityFromName(attachmentValue),
+        ),
+      );
     }
 
     final roots = <SpaceModel>[];

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import 'item_model.dart';
+import 'space_member.dart';
 
 class SpaceModel {
   final String id;
@@ -17,6 +18,7 @@ class SpaceModel {
   SpaceModel? parent;
   List<SpaceModel> mySpaces;
   List<ItemModel> items;
+  List<SpaceMember> collaborators;
 
   static List<SpaceModel> currentSpaces = [];
   static SpaceStorage? _storage;
@@ -40,10 +42,12 @@ class SpaceModel {
     this.size = Size.zero,
     List<SpaceModel>? mySpaces,
     List<ItemModel>? items,
+    List<SpaceMember>? collaborators,
     this.parent,
   })  : id = id ?? const Uuid().v4(),
         mySpaces = List<SpaceModel>.from(mySpaces ?? const []),
-        items = List<ItemModel>.from(items ?? const []);
+        items = List<ItemModel>.from(items ?? const []),
+        collaborators = List<SpaceMember>.from(collaborators ?? const []);
 
   Map<dynamic, dynamic> toJson() => {
         'id': id,
@@ -58,6 +62,8 @@ class SpaceModel {
         },
         'mySpaces': mySpaces.map((space) => space.toJson()).toList(),
         'items': items.map((item) => item.toJson()).toList(),
+        'collaborators':
+            collaborators.map((member) => member.toJson()).toList(),
       };
 
   static SpaceModel fromJson(Map<dynamic, dynamic> json) {
@@ -76,6 +82,16 @@ class SpaceModel {
           ? List<ItemModel>.from(
               (json['items'] as List<dynamic>)
                   .map((itemJson) => ItemModel.fromJson(itemJson)),
+            )
+          : [],
+      collaborators: json['collaborators'] != null
+          ? List<SpaceMember>.from(
+              (json['collaborators'] as List<dynamic>)
+                  .whereType<Map<dynamic, dynamic>>()
+                  .map(
+                    (memberJson) =>
+                        SpaceMember.fromJson(Map<String, dynamic>.from(memberJson)),
+                  ),
             )
           : [],
     );
@@ -104,6 +120,7 @@ class SpaceModel {
   void _prepareForPersistence() {
     mySpaces = List<SpaceModel>.from(mySpaces);
     items = List<ItemModel>.from(items);
+    collaborators = List<SpaceMember>.from(collaborators);
 
     double sanitizeCoordinate(double value) {
       if (!value.isFinite) {
