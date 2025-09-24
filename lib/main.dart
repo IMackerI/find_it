@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:ffi';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart'
     as sqlite_libraries;
+import 'package:sqlite3/open.dart' as sqlite_open;
 
 import 'data/local_database.dart';
 import 'data/remote/remote_api_client.dart';
@@ -15,7 +18,7 @@ import 'theme/theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await sqlite_libraries.applyWorkaroundToOpenSqlite3OnOldAndroidVersions();
+  await _ensureSqlite3IsAvailable();
 
   final database = LocalDatabase();
   final repository = SpacesRepository(database: database);
@@ -99,4 +102,39 @@ class _FindItAppState extends State<FindItApp> with WidgetsBindingObserver {
       },
     );
   }
+}
+
+Future<void> _ensureSqlite3IsAvailable() async {
+  if (!Platform.isAndroid) {
+    return;
+  }
+
+  try {
+    await sqlite_libraries.applyWorkaroundToOpenSqlite3OnOldAndroidVersions();
+  } catch (error, stackTrace) {
+    debugPrint('Failed to apply sqlite workaround: $error\n$stackTrace');
+  }
+
+  sqlite_open.open.overrideFor(sqlite_open.OperatingSystem.android, () {
+    final candidates = <String>[
+      'libsqlite3.so',
+      'libsqlite.so',
+      '/system/lib64/libsqlite3.so',
+      '/system/lib64/libsqlite.so',
+      '/system/lib/libsqlite3.so',
+      '/system/lib/libsqlite.so',
+    ];
+    Object? lastError;
+    for (final candidate in candidates) {
+      try {
+        return DynamicLibrary.open(candidate);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError is Error) {
+      throw lastError;
+    }
+    throw StateError('Failed to load the sqlite3 library: $lastError');
+  });
 }
