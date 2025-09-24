@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../models/space_member.dart';
 import '../models/space_model.dart';
 import '../theme/app_theme.dart';
 import 'room.dart';
@@ -406,11 +407,179 @@ class _SpaceCard extends StatelessWidget {
                         color: colorScheme.onPrimaryContainer.withOpacity(0.75),
                       ),
                     ),
+                    if (space.collaborators.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _CollaboratorsPreview(collaborators: space.collaborators),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CollaboratorsPreview extends StatelessWidget {
+  const _CollaboratorsPreview({required this.collaborators});
+
+  final List<SpaceMember> collaborators;
+
+  @override
+  Widget build(BuildContext context) {
+    const int maxFaces = 3;
+    const double avatarSize = 28;
+    const double overlap = 10;
+    final total = collaborators.length;
+    int visibleCount = total;
+    if (total > maxFaces) {
+      visibleCount = maxFaces - 1;
+    }
+    final showOverflow = total > maxFaces;
+    final visibleMembers = collaborators.take(visibleCount).toList();
+    final overflowCount = showOverflow ? total - visibleCount : 0;
+    final chipsCount = showOverflow ? visibleMembers.length + 1 : visibleMembers.length;
+    final width = avatarSize + (chipsCount - 1) * (avatarSize - overlap);
+
+    SpaceMember? owner;
+    for (final member in collaborators) {
+      if (member.role == SpaceRole.owner) {
+        owner = member;
+        break;
+      }
+    }
+    final othersCount = owner == null ? total : total - 1;
+    String label;
+    if (owner != null) {
+      if (othersCount <= 0) {
+        label = 'Owned by ${owner.displayName}';
+      } else if (othersCount == 1) {
+        label = 'Owned by ${owner.displayName} • 1 collaborator';
+      } else {
+        label = 'Owned by ${owner.displayName} • $othersCount collaborators';
+      }
+    } else {
+      label = total == 1
+          ? 'Shared with 1 person'
+          : 'Shared with $total people';
+    }
+
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Row(
+      children: [
+        SizedBox(
+          width: width,
+          height: avatarSize,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              for (var i = 0; i < visibleMembers.length; i++)
+                Positioned(
+                  left: i * (avatarSize - overlap),
+                  child: _CollaboratorAvatar(
+                    member: visibleMembers[i],
+                    size: avatarSize,
+                  ),
+                ),
+              if (showOverflow)
+                Positioned(
+                  left: visibleMembers.length * (avatarSize - overlap),
+                  child: _CollaboratorOverflowAvatar(
+                    count: overflowCount,
+                    size: avatarSize,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onPrimaryContainer.withOpacity(0.85),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CollaboratorAvatar extends StatelessWidget {
+  const _CollaboratorAvatar({required this.member, required this.size});
+
+  final SpaceMember member;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final backgroundColor = member.user.isCurrentUser
+        ? colorScheme.primary
+        : colorScheme.surfaceVariant.withOpacity(0.85);
+    final textColor = member.user.isCurrentUser
+        ? colorScheme.onPrimary
+        : colorScheme.onSurfaceVariant;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: colorScheme.surface.withOpacity(0.9),
+          width: 2,
+        ),
+      ),
+      child: CircleAvatar(
+        backgroundColor: backgroundColor,
+        foregroundColor: textColor,
+        child: Text(
+          member.initial,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CollaboratorOverflowAvatar extends StatelessWidget {
+  const _CollaboratorOverflowAvatar({required this.count, required this.size});
+
+  final int count;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colorScheme.surface.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(size / 2),
+        border: Border.all(
+          color: colorScheme.surface.withOpacity(0.9),
+          width: 2,
+        ),
+      ),
+      child: Text(
+        '+$count',
+        style: theme.textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: colorScheme.onSurfaceVariant,
         ),
       ),
     );
