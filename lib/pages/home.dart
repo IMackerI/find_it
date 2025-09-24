@@ -19,6 +19,26 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  late final VoidCallback _spacesListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _spacesListener = () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+    };
+    SpaceModel.dataVersion.addListener(_spacesListener);
+  }
+
+  @override
+  void dispose() {
+    SpaceModel.dataVersion.removeListener(_spacesListener);
+    super.dispose();
+  }
+
   Future<void> _refreshSpaces() async {
     await SpaceModel.loadItems();
     if (!mounted) return;

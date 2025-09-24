@@ -116,17 +116,26 @@ void main() {
       isDeleted: false,
     );
 
+    var callCount = 0;
     remoteApiClient.handler = (request) {
-      expect(request.mutations, isNotEmpty);
-      return SyncResponse(
-        spaces: [remoteSpace],
-        items: [remoteNewItem],
-        users: const [],
-        memberships: const [],
-        cursor: 'cursor-1',
-      );
+      callCount += 1;
+      if (callCount == 1) {
+        expect(request.cursor, isNull);
+        expect(request.mutations, isNotEmpty);
+        return SyncResponse(
+          spaces: [remoteSpace],
+          items: [remoteNewItem],
+          users: const [],
+          memberships: const [],
+          cursor: 'cursor-1',
+        );
+      }
+      expect(request.cursor, 'cursor-1');
+      expect(request.mutations, isEmpty);
+      return SyncResponse.empty();
     };
 
+    await syncService.syncNow();
     await syncService.syncNow();
 
     final pendingAfter = await database.getPendingMutations();
@@ -143,5 +152,9 @@ void main() {
 
     final dbFile = File(p.join(tempDir.path, 'spaces.db'));
     expect(dbFile.existsSync(), isTrue);
+
+    final storedCursor = await database.loadSyncCursor();
+    expect(storedCursor, 'cursor-1');
+    expect(callCount, 2);
   });
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,6 +23,7 @@ class SpaceModel {
 
   static List<SpaceModel> currentSpaces = [];
   static SpaceStorage? _storage;
+  static final ValueNotifier<int> dataVersion = ValueNotifier<int>(0);
 
   static void configureStorage(SpaceStorage storage) {
     _storage = storage;
@@ -244,9 +246,11 @@ class SpaceModel {
         space.assignParents();
       }
       debugPrint('items loaded');
+      _notifyDataChanged();
     } catch (e, stackTrace) {
       debugPrint('Failed to load items: $e\n$stackTrace');
       currentSpaces = [];
+      _notifyDataChanged();
     }
   }
 
@@ -277,6 +281,10 @@ class SpaceModel {
       debugPrint('Failed to load legacy items: $e\n$stackTrace');
       return [];
     }
+  }
+
+  static void _notifyDataChanged() {
+    dataVersion.value = dataVersion.value + 1;
   }
 }
 

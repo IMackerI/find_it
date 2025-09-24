@@ -5,9 +5,11 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/widgets.dart' show Offset, Size;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart';
 
 import '../models/item_model.dart';
 import '../models/space_member.dart';
@@ -18,13 +20,22 @@ import 'remote/models.dart';
 part 'local_database.g.dart';
 
 const _dbName = 'spaces.db';
+const _syncCursorFileName = 'sync_cursor.txt';
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
+    if (Platform.isAndroid) {
+      await applyWorkaroundToOpenSqliteOnOldAndroidVersions();
+    }
     final directory = await getApplicationDocumentsDirectory();
     final file = File(p.join(directory.path, _dbName));
     return NativeDatabase(file, logStatements: false);
   });
+}
+
+Future<File> _syncCursorFile() async {
+  final directory = await getApplicationDocumentsDirectory();
+  return File(p.join(directory.path, _syncCursorFileName));
 }
 
 @DataClassName('SpaceRow')
@@ -913,6 +924,39 @@ class LocalDatabase extends _$LocalDatabase {
       await _applyRemoteItems(response.items);
       await _applyRemoteMemberships(response.memberships);
     });
+  }
+
+  Future<String?> loadSyncCursor() async {
+    try {
+      final file = await _syncCursorFile();
+      if (!await file.exists()) {
+        return null;
+      }
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) {
+        return null;
+      }
+      return raw;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load sync cursor: $error\n$stackTrace');
+      return null;
+    }
+  }
+
+  Future<void> saveSyncCursor(String? cursor) async {
+    try {
+      final file = await _syncCursorFile();
+      final trimmed = cursor?.trim();
+      if (trimmed == null || trimmed.isEmpty) {
+        if (await file.exists()) {
+          await file.delete();
+        }
+        return;
+      }
+      await file.writeAsString(trimmed, flush: true);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to save sync cursor: $error\n$stackTrace');
+    }
   }
 
   Future<void> _applyRemoteUsers(List<RemoteUser> users) async {
