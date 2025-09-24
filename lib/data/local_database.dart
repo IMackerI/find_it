@@ -203,6 +203,9 @@ class LocalDatabase extends _$LocalDatabase {
             await m.createTable(outboxEntriesTable);
           }
         },
+        beforeOpen: (details) async {
+          await customStatement('PRAGMA foreign_keys = ON;');
+        },
       );
 
   Future<void> replaceAllSpaces(List<SpaceModel> spaces) async {
