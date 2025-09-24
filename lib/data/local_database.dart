@@ -18,6 +18,7 @@ import 'remote/models.dart';
 part 'local_database.g.dart';
 
 const _dbName = 'spaces.db';
+const _syncStateTableName = 'sync_state';
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
@@ -202,6 +203,9 @@ class LocalDatabase extends _$LocalDatabase {
           if (from < 3) {
             await m.createTable(outboxEntriesTable);
           }
+        },
+        beforeOpen: (details) async {
+          await _ensureSyncStateTable();
         },
       );
 
@@ -915,6 +919,21 @@ class LocalDatabase extends _$LocalDatabase {
     });
   }
 
+  Future<void> saveSyncCursor(String? cursor) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    await customStatement(
+      'UPDATE $_syncStateTableName SET cursor = ?, updated_at = ? WHERE id = 1',
+      [cursor, timestamp],
+    );
+  }
+
+  Future<String?> loadSyncCursor() async {
+    final row = await customSelect(
+      'SELECT cursor FROM $_syncStateTableName WHERE id = 1',
+    ).getSingleOrNull();
+    return row?.readNullable<String>('cursor');
+  }
+
   Future<void> _applyRemoteUsers(List<RemoteUser> users) async {
     for (final user in users) {
       final existing = await (select(usersTable)
@@ -1070,6 +1089,20 @@ class LocalDatabase extends _$LocalDatabase {
 
   Future<void> dispose() async {
     await close();
+  }
+
+  Future<void> _ensureSyncStateTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS $_syncStateTableName (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        cursor TEXT,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await customStatement('''
+      INSERT OR IGNORE INTO $_syncStateTableName (id, cursor, updated_at)
+      VALUES (1, NULL, 0)
+    ''');
   }
 
   Future<void> _enqueueMutation({

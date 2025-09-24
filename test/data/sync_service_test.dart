@@ -143,5 +143,61 @@ void main() {
 
     final dbFile = File(p.join(tempDir.path, 'spaces.db'));
     expect(dbFile.existsSync(), isTrue);
+
+    final storedCursor = await database.loadSyncCursor();
+    expect(storedCursor, 'cursor-1');
+  });
+
+  test('sync cursor persists between service instances', () async {
+    final user = UserProfile(
+      id: 'user-1',
+      email: 'user@example.com',
+      isCurrentUser: true,
+    );
+
+    final kitchen = SpaceModel(
+      name: 'Kitchen',
+      collaborators: [
+        SpaceMember(user: user, role: SpaceRole.owner),
+      ],
+    );
+    kitchen.assignParents();
+
+    await database.replaceAllSpaces([kitchen]);
+
+    remoteApiClient.handler = (request) {
+      expect(request.cursor, isNull);
+      return SyncResponse(
+        spaces: const [],
+        items: const [],
+        users: const [],
+        memberships: const [],
+        cursor: 'cursor-1',
+      );
+    };
+
+    await syncService.syncNow();
+
+    await syncService.dispose();
+
+    final persistedCursor = await database.loadSyncCursor();
+    expect(persistedCursor, 'cursor-1');
+
+    remoteApiClient = FakeRemoteApiClient(
+      handler: (request) {
+        expect(request.cursor, 'cursor-1');
+        return SyncResponse.empty();
+      },
+    );
+
+    syncService = SyncService(
+      database: database,
+      apiClient: remoteApiClient,
+      pollInterval: const Duration(minutes: 10),
+    );
+
+    await syncService.syncNow();
+
+    expect(remoteApiClient.capturedRequests, isNotEmpty);
   });
 }

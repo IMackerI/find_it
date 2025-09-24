@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart'
+    as sqlite_libraries;
 
 import 'data/local_database.dart';
 import 'data/remote/remote_api_client.dart';
@@ -13,6 +15,7 @@ import 'theme/theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await sqlite_libraries.applyWorkaroundToOpenSqlite3OnOldAndroidVersions();
 
   final database = LocalDatabase();
   final repository = SpacesRepository(database: database);

@@ -31,6 +31,7 @@ class SyncService {
   bool _isRunning = false;
   bool _isSyncing = false;
   String? _cursor;
+  bool _cursorLoaded = false;
 
   static Future<bool> _alwaysConnected() async => true;
 
@@ -56,6 +57,8 @@ class SyncService {
       if (!await _connectivityCheck()) {
         return;
       }
+      await _ensureCursorLoaded();
+      var nextCursor = _cursor;
       var hasMore = true;
       while (hasMore) {
         final pending = await _database.getPendingMutations(
@@ -72,12 +75,17 @@ class SyncService {
             pending.map((mutation) => mutation.id).toList(),
           );
         }
-        _cursor = response.cursor ?? _cursor;
+        if (response.cursor != null) {
+          nextCursor = response.cursor;
+        }
+        _cursor = nextCursor;
         hasMore = pending.length == _maxBatchSize;
         if (!hasMore) {
           break;
         }
       }
+      _cursor = nextCursor;
+      await _database.saveSyncCursor(_cursor);
     } catch (error, stackTrace) {
       debugPrint('SyncService error: $error\n$stackTrace');
     } finally {
@@ -94,5 +102,13 @@ class SyncService {
   Future<void> dispose() async {
     stop();
     await _apiClient.dispose();
+  }
+
+  Future<void> _ensureCursorLoaded() async {
+    if (_cursorLoaded) {
+      return;
+    }
+    _cursor = await _database.loadSyncCursor();
+    _cursorLoaded = true;
   }
 }
