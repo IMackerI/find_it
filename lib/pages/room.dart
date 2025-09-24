@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:intl/intl.dart';
 
 import 'package:find_it/models/item_model.dart';
+import 'package:find_it/models/space_member.dart';
 import 'package:find_it/models/space_model.dart';
 import 'package:find_it/pages/item.dart';
 import 'package:find_it/theme/app_theme.dart';
@@ -690,6 +692,223 @@ class _RoomPageState extends State<RoomPage> {
     );
   }
 
+  void _showCollaboratorsSheet() {
+    final collaborators = List<SpaceMember>.from(currentSpace.collaborators);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        final textTheme = theme.textTheme;
+        final colorScheme = theme.colorScheme;
+        final dateFormat = DateFormat.yMMMd();
+
+        final descriptionStyle =
+            textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant);
+
+        final tiles = <Widget>[
+          Text(
+            'Collaborators',
+            style:
+                textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'See who has access to this space and how shared photos behave.',
+            style: descriptionStyle,
+          ),
+          const SizedBox(height: 16),
+        ];
+
+        if (collaborators.isEmpty) {
+          tiles.add(
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceVariant.withOpacity(0.35),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Only you can access this space for now.',
+                    style: textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'When sharing arrives, collaborators and their photo settings '
+                    'will appear here.',
+                    style: descriptionStyle,
+                  ),
+                ],
+              ),
+            ),
+          );
+        } else {
+          for (var i = 0; i < collaborators.length; i++) {
+            final member = collaborators[i];
+            final joinedLabel = member.joinedAt == null
+                ? null
+                : 'Joined ${dateFormat.format(member.joinedAt!.toLocal())}';
+
+            tiles.add(
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceVariant.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: colorScheme.primaryContainer,
+                      foregroundColor: colorScheme.onPrimaryContainer,
+                      child: Text(
+                        _initialFor(member),
+                        style: textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _displayNameFor(member),
+                            style: textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          if (_shouldShowEmail(member)) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              member.user.email,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _buildMetaChip(
+                                label: _roleLabel(member.role),
+                                colorScheme: colorScheme,
+                                textTheme: textTheme,
+                              ),
+                              _buildMetaChip(
+                                label: _visibilityLabel(
+                                    member.defaultAttachmentVisibility),
+                                colorScheme: colorScheme,
+                                textTheme: textTheme,
+                              ),
+                              if (member.user.isCurrentUser)
+                                _buildMetaChip(
+                                  label: 'You',
+                                  colorScheme: colorScheme,
+                                  textTheme: textTheme,
+                                ),
+                            ],
+                          ),
+                          if (joinedLabel != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              joinedLabel,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+        }
+
+        return SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            children: tiles,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMetaChip({
+    required String label,
+    required ColorScheme colorScheme,
+    required TextTheme textTheme,
+  }) {
+    return Chip(
+      label: Text(label),
+      backgroundColor: colorScheme.secondaryContainer.withOpacity(0.7),
+      labelStyle: textTheme.bodySmall?.copyWith(
+        fontWeight: FontWeight.w600,
+        color: colorScheme.onSecondaryContainer,
+      ),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
+  String _displayNameFor(SpaceMember member) {
+    final displayName = member.user.displayName?.trim();
+    if (displayName != null && displayName.isNotEmpty) {
+      return displayName;
+    }
+    return member.user.email;
+  }
+
+  bool _shouldShowEmail(SpaceMember member) {
+    final displayName = member.user.displayName?.trim();
+    if (displayName == null || displayName.isEmpty) {
+      return false;
+    }
+    return !displayName.toLowerCase().contains(member.user.email.toLowerCase());
+  }
+
+  String _initialFor(SpaceMember member) {
+    final source = _displayNameFor(member);
+    final trimmed = source.trim();
+    if (trimmed.isEmpty) {
+      return '?';
+    }
+    return trimmed.substring(0, 1).toUpperCase();
+  }
+
+  String _roleLabel(SpaceRole role) {
+    switch (role) {
+      case SpaceRole.owner:
+        return 'Owner';
+      case SpaceRole.editor:
+        return 'Editor';
+      case SpaceRole.viewer:
+        return 'Viewer';
+    }
+  }
+
+  String _visibilityLabel(AttachmentVisibility visibility) {
+    switch (visibility) {
+      case AttachmentVisibility.shared:
+        return 'Shared photos';
+      case AttachmentVisibility.private:
+        return 'Private photos';
+    }
+  }
+
   AppBar appBar() {
     final theme = Theme.of(context);
     return AppBar(
@@ -699,6 +918,11 @@ class _RoomPageState extends State<RoomPage> {
       ),
       backgroundColor: Colors.transparent,
       actions: [
+        IconButton(
+          icon: const Icon(Icons.group_outlined),
+          tooltip: 'View collaborators',
+          onPressed: _showCollaboratorsSheet,
+        ),
         IconButton(
           icon: const Icon(Icons.save_outlined),
           tooltip: 'Save layout',

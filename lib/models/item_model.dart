@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
+
 import 'space_model.dart';
 
 class ItemModel {
+  final String id;
   String name;
   String description;
   String? locationSpecification;
@@ -45,16 +48,18 @@ class ItemModel {
   ];
 
   ItemModel({
+    String? id,
     required this.name,
     required this.description,
     this.locationSpecification,
     this.tags,
     this.imagePath,
     this.parent,
-  });
+  }) : id = id ?? const Uuid().v4();
 
   factory ItemModel.fromJson(Map<String, dynamic> json) {
     return ItemModel(
+      id: json['id'],
       name: json['name'],
       description: json['description'],
       locationSpecification: json['locationSpecification'],
@@ -65,6 +70,7 @@ class ItemModel {
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'name': name,
       'description': description,
       'locationSpecification': locationSpecification,
