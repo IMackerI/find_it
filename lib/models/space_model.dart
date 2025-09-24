@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,11 +22,16 @@ class SpaceModel {
   List<SpaceMember> collaborators;
 
   static List<SpaceModel> currentSpaces = [];
+  static final ValueNotifier<List<SpaceModel>> _spacesNotifier =
+      ValueNotifier<List<SpaceModel>>(const []);
   static SpaceStorage? _storage;
 
   static void configureStorage(SpaceStorage storage) {
     _storage = storage;
   }
+
+  static ValueListenable<List<SpaceModel>> get spacesListenable =>
+      _spacesNotifier;
 
   static SpaceStorage get _spaceStorage {
     final storage = _storage;
@@ -222,6 +228,7 @@ class SpaceModel {
         space._prepareForPersistence();
       }
       await _spaceStorage.saveSpaces(currentSpaces);
+      _notifySpacesChanged();
       debugPrint('items saved');
       return true;
     } catch (e, stackTrace) {
@@ -232,22 +239,34 @@ class SpaceModel {
 
   static Future<void> loadItems() async {
     try {
-      currentSpaces = await _spaceStorage.loadSpaces();
-      if (currentSpaces.isEmpty) {
+      var spaces = await _spaceStorage.loadSpaces();
+      if (spaces.isEmpty) {
         final migratedSpaces = await _loadFromLegacyFile();
         if (migratedSpaces.isNotEmpty) {
-          currentSpaces = migratedSpaces;
+          updateCurrentSpaces(migratedSpaces);
           await _spaceStorage.saveSpaces(currentSpaces);
+          debugPrint('items loaded');
+          return;
         }
       }
-      for (final space in currentSpaces) {
-        space.assignParents();
-      }
+      updateCurrentSpaces(spaces);
       debugPrint('items loaded');
     } catch (e, stackTrace) {
       debugPrint('Failed to load items: $e\n$stackTrace');
-      currentSpaces = [];
+      updateCurrentSpaces(const <SpaceModel>[]);
     }
+  }
+
+  static void updateCurrentSpaces(List<SpaceModel> spaces) {
+    currentSpaces = List<SpaceModel>.from(spaces);
+    for (final space in currentSpaces) {
+      space.assignParents();
+    }
+    _notifySpacesChanged();
+  }
+
+  static void _notifySpacesChanged() {
+    _spacesNotifier.value = List<SpaceModel>.unmodifiable(currentSpaces);
   }
 
   static Future<List<SpaceModel>> _loadFromLegacyFile() async {

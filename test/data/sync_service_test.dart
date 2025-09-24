@@ -48,6 +48,7 @@ void main() {
   late LocalDatabase database;
   late FakeRemoteApiClient remoteApiClient;
   late SyncService syncService;
+  late int remoteChangeNotifications;
 
   setUp(() async {
     originalPlatform = PathProviderPlatform.instance;
@@ -55,10 +56,14 @@ void main() {
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
     database = LocalDatabase();
     remoteApiClient = FakeRemoteApiClient();
+    remoteChangeNotifications = 0;
     syncService = SyncService(
       database: database,
       apiClient: remoteApiClient,
       pollInterval: const Duration(minutes: 10),
+      onRemoteChange: () async {
+        remoteChangeNotifications++;
+      },
     );
   });
 
@@ -132,6 +137,8 @@ void main() {
     final pendingAfter = await database.getPendingMutations();
     expect(pendingAfter, isEmpty);
 
+    expect(remoteChangeNotifications, 1);
+
     final loadedSpaces = await database.loadSpaces();
     expect(loadedSpaces, hasLength(1));
     final loadedCloset = loadedSpaces.single;
@@ -178,6 +185,8 @@ void main() {
 
     await syncService.syncNow();
 
+    expect(remoteChangeNotifications, 0);
+
     await syncService.dispose();
 
     final persistedCursor = await database.loadSyncCursor();
@@ -190,14 +199,19 @@ void main() {
       },
     );
 
+    remoteChangeNotifications = 0;
     syncService = SyncService(
       database: database,
       apiClient: remoteApiClient,
       pollInterval: const Duration(minutes: 10),
+      onRemoteChange: () async {
+        remoteChangeNotifications++;
+      },
     );
 
     await syncService.syncNow();
 
     expect(remoteApiClient.capturedRequests, isNotEmpty);
+    expect(remoteChangeNotifications, 0);
   });
 }

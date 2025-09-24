@@ -15,17 +15,20 @@ class SyncService {
     Duration pollInterval = const Duration(minutes: 5),
     int maxBatchSize = 50,
     ConnectivityCheck? connectivityCheck,
+    Future<void> Function()? onRemoteChange,
   })  : _database = database,
         _apiClient = apiClient,
         _pollInterval = pollInterval,
         _maxBatchSize = maxBatchSize,
-        _connectivityCheck = connectivityCheck ?? _alwaysConnected;
+        _connectivityCheck = connectivityCheck ?? _alwaysConnected,
+        _onRemoteChange = onRemoteChange;
 
   final LocalDatabase _database;
   final RemoteApiClient _apiClient;
   final Duration _pollInterval;
   final int _maxBatchSize;
   final ConnectivityCheck _connectivityCheck;
+  final Future<void> Function()? _onRemoteChange;
 
   Timer? _timer;
   bool _isRunning = false;
@@ -60,6 +63,7 @@ class SyncService {
       await _ensureCursorLoaded();
       var nextCursor = _cursor;
       var hasMore = true;
+      var didApplyRemoteChanges = false;
       while (hasMore) {
         final pending = await _database.getPendingMutations(
           limit: _maxBatchSize,
@@ -69,7 +73,10 @@ class SyncService {
           cursor: _cursor,
         );
         final response = await _apiClient.sync(request);
-        await _database.applyRemoteChanges(response);
+        final appliedRemote = await _database.applyRemoteChanges(response);
+        if (appliedRemote) {
+          didApplyRemoteChanges = true;
+        }
         if (pending.isNotEmpty) {
           await _database.markMutationsProcessed(
             pending.map((mutation) => mutation.id).toList(),
@@ -83,6 +90,9 @@ class SyncService {
         if (!hasMore) {
           break;
         }
+      }
+      if (didApplyRemoteChanges && _onRemoteChange != null) {
+        await _onRemoteChange!();
       }
       _cursor = nextCursor;
       await _database.saveSyncCursor(_cursor);

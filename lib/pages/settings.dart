@@ -203,8 +203,9 @@ class _SettingsPageState extends State<SettingsPage> {
         File file = File(result.files.single.path!);
         String content = await file.readAsString();
         List<dynamic> json = jsonDecode(content);
-        SpaceModel.currentSpaces =
+        final importedSpaces =
             json.map((data) => SpaceModel.fromJson(data)).toList();
+        SpaceModel.updateCurrentSpaces(importedSpaces);
         final saved = await SpaceModel.saveItems();
         if (!mounted) return;
         if (!saved) {

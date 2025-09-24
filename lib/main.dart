@@ -36,6 +36,9 @@ Future<void> main() async {
   final syncService = SyncService(
     database: database,
     apiClient: remoteApiClient,
+    onRemoteChange: () async {
+      await SpaceModel.loadItems();
+    },
   );
 
   final themeController = ThemeController();

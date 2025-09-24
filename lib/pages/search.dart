@@ -47,54 +47,61 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    getItems();
-    List<ItemModel> filteredItems = getFilteredItems();
-    final theme = Theme.of(context);
-    final extras = theme.extension<AppThemeColors>()!;
+    return ValueListenableBuilder<List<SpaceModel>>(
+      valueListenable: SpaceModel.spacesListenable,
+      builder: (context, spaces, _) {
+        places = spaces;
+        getItems();
+        final filteredItems = getFilteredItems();
+        final theme = Theme.of(context);
+        final extras = theme.extension<AppThemeColors>()!;
 
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(gradient: extras.backgroundGradient),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                child: searchBar(context),
-              ),
-              Expanded(
-                child: filteredItems.isEmpty
-                    ? _buildEmptyResults(theme, extras)
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        itemCount: filteredItems.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          String parentName = '';
-                          if (filteredItems[index].parent != null) {
-                            parentName = filteredItems[index].parent!.name;
-                            if (filteredItems[index].parent!.parent != null) {
-                              parentName =
-                                  '${filteredItems[index].parent!.parent!.name} > $parentName';
-                              if (filteredItems[index].parent!.parent!.parent != null) {
-                                parentName =
-                                    '${filteredItems[index].parent!.parent!.parent!.name} > $parentName';
+        return Scaffold(
+          body: Container(
+            decoration: BoxDecoration(gradient: extras.backgroundGradient),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                    child: searchBar(context),
+                  ),
+                  Expanded(
+                    child: filteredItems.isEmpty
+                        ? _buildEmptyResults(theme, extras)
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                            itemCount: filteredItems.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (context, index) {
+                              String parentName = '';
+                              if (filteredItems[index].parent != null) {
+                                parentName = filteredItems[index].parent!.name;
+                                if (filteredItems[index].parent!.parent != null) {
+                                  parentName =
+                                      '${filteredItems[index].parent!.parent!.name} > $parentName';
+                                  if (filteredItems[index].parent!.parent!.parent !=
+                                      null) {
+                                    parentName =
+                                        '${filteredItems[index].parent!.parent!.parent!.name} > $parentName';
+                                  }
+                                }
                               }
-                            }
-                          }
-                          return searchEntry(
-                            filteredItems,
-                            index,
-                            parentName,
-                            context,
-                          );
-                        },
-                      ),
+                              return searchEntry(
+                                filteredItems,
+                                index,
+                                parentName,
+                                context,
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
