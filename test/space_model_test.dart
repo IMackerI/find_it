@@ -23,8 +23,6 @@ class _FakePathProviderPlatform extends PathProviderPlatform {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  sqfliteFfiInit();
-
   late PathProviderPlatform originalPlatform;
 
   setUp(() {
@@ -146,7 +144,7 @@ void main() {
       final tempDir = await Directory.systemTemp.createTemp('find_it_test');
       PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
 
-      final database = LocalDatabase(factory: databaseFactoryFfi);
+      final database = LocalDatabase();
       SpaceModel.configureStorage(SpacesRepository(database: database));
 
       final deskDrawer = SpaceModel(

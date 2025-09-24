@@ -38,6 +38,23 @@ class SpaceMember {
   final DateTime? joinedAt;
   final AttachmentVisibility defaultAttachmentVisibility;
 
+  String get displayName {
+    final display = user.displayName?.trim();
+    if (display != null && display.isNotEmpty) {
+      return display;
+    }
+    return user.email;
+  }
+
+  String get initial {
+    final name = displayName.trim();
+    if (name.isEmpty) {
+      return '?';
+    }
+    final firstRune = name.runes.first;
+    return String.fromCharCode(firstRune).toUpperCase();
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'user': user.toJson(),

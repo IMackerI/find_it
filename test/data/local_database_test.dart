@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this._documentsPath);
@@ -22,8 +21,6 @@ class _FakePathProviderPlatform extends PathProviderPlatform {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  sqfliteFfiInit();
-
   late Directory tempDir;
   late PathProviderPlatform originalPlatform;
   late LocalDatabase database;
@@ -32,7 +29,7 @@ void main() {
     originalPlatform = PathProviderPlatform.instance;
     tempDir = await Directory.systemTemp.createTemp('local_database_test');
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
-    database = LocalDatabase(factory: databaseFactoryFfi);
+    database = LocalDatabase();
   });
 
   tearDown(() async {
@@ -117,14 +114,14 @@ void main() {
     expect(loadedOwner.user.email, owner.email);
     expect(loadedOwner.user.isCurrentUser, isTrue);
     expect(loadedOwner.joinedAt?.toUtc(), DateTime.utc(2023, 1, 10));
-    expect(loadedOwner.defaultAttachmentVisibility,
-        AttachmentVisibility.shared);
+    expect(
+        loadedOwner.defaultAttachmentVisibility, AttachmentVisibility.shared);
 
     final loadedViewer = loadedGarage.collaborators
         .firstWhere((member) => member.role == SpaceRole.viewer);
     expect(loadedViewer.user.email, viewer.email);
-    expect(loadedViewer.defaultAttachmentVisibility,
-        AttachmentVisibility.private);
+    expect(
+        loadedViewer.defaultAttachmentVisibility, AttachmentVisibility.private);
 
     final loadedToolbox = loadedGarage.mySpaces.single;
     expect(loadedToolbox.name, toolbox.name);
@@ -137,5 +134,59 @@ void main() {
     expect(loadedToolbox.collaborators.single.role, SpaceRole.editor);
     expect(loadedToolbox.collaborators.single.defaultAttachmentVisibility,
         AttachmentVisibility.private);
+  });
+
+  test('replaceAllSpaces enqueues mutations only when data changes', () async {
+    final owner = UserProfile(
+      id: 'owner',
+      email: 'owner@example.com',
+      isCurrentUser: true,
+    );
+
+    final drawer = SpaceModel(
+      name: 'Drawer',
+      items: [
+        ItemModel(name: 'Keys', description: 'Car keys'),
+      ],
+      collaborators: [
+        SpaceMember(
+          user: owner,
+          role: SpaceRole.owner,
+        ),
+      ],
+    );
+
+    final hallway = SpaceModel(
+      name: 'Hallway',
+      mySpaces: [drawer],
+    );
+    hallway.assignParents();
+
+    await database.replaceAllSpaces([hallway]);
+    final initialMutations = await database.getPendingMutations();
+    expect(initialMutations, isNotEmpty);
+    await database.markMutationsProcessed(
+      initialMutations.map((mutation) => mutation.id).toList(),
+    );
+
+    final unchangedCopy = SpaceModel.fromJson(hallway.toJson());
+    unchangedCopy.assignParents();
+    await database.replaceAllSpaces([unchangedCopy]);
+    final noChangeMutations = await database.getPendingMutations();
+    expect(noChangeMutations, isEmpty);
+
+    final renamed = SpaceModel.fromJson(hallway.toJson());
+    renamed.name = 'Renovated Hallway';
+    renamed.assignParents();
+    await database.replaceAllSpaces([renamed]);
+    final updatedMutations = await database.getPendingMutations();
+    expect(
+      updatedMutations.where((mutation) =>
+          mutation.entityType == 'space' && mutation.operation == 'upsert'),
+      isNotEmpty,
+    );
+    await database.markMutationsProcessed(
+      updatedMutations.map((mutation) => mutation.id).toList(),
+    );
   });
 }

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/svg.dart';
 
 import 'package:find_it/models/item_model.dart';
+import 'package:find_it/models/space_member.dart';
 import 'package:find_it/models/space_model.dart';
 import 'package:find_it/pages/item.dart';
 import 'package:find_it/theme/app_theme.dart';
@@ -162,6 +163,80 @@ class _RoomPageState extends State<RoomPage> {
 
     await _saveSpacesWithFeedback(
       failureMessage: 'Room added but saving changes failed.',
+    );
+  }
+
+  Future<void> _showCollaboratorsSheet() async {
+    final rootContext = context;
+    final collaborators = currentSpace.collaborators;
+    await showModalBottomSheet<void>(
+      context: rootContext,
+      useSafeArea: true,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final colorScheme = theme.colorScheme;
+        final mediaQuery = MediaQuery.of(sheetContext);
+        return SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 12,
+              bottom: mediaQuery.viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sharing',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Spaces stay up to date for everyone listed below when '
+                  'sync is connected.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (collaborators.isEmpty)
+                  const _EmptyCollaboratorsView()
+                else ...[
+                  for (final member in collaborators) ...[
+                    _CollaboratorListTile(member: member),
+                    if (member != collaborators.last)
+                      const SizedBox(height: 12),
+                  ],
+                ],
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    if (!mounted) {
+                      return;
+                    }
+                    ScaffoldMessenger.of(rootContext).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Invites are coming soon—stay tuned!',
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                  label: const Text('Invite collaborator (coming soon)'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -700,6 +775,14 @@ class _RoomPageState extends State<RoomPage> {
       backgroundColor: Colors.transparent,
       actions: [
         IconButton(
+          icon: const Icon(Icons.group_outlined),
+          tooltip: 'View collaborators',
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            _showCollaboratorsSheet();
+          },
+        ),
+        IconButton(
           icon: const Icon(Icons.save_outlined),
           tooltip: 'Save layout',
           onPressed: () async {
@@ -822,4 +905,139 @@ class _ModeToggle extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CollaboratorListTile extends StatelessWidget {
+  const _CollaboratorListTile({required this.member});
+
+  final SpaceMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final subtitleParts = <String>[
+      _roleDescription(member.role),
+      _visibilityDescription(member.defaultAttachmentVisibility),
+    ];
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: member.user.isCurrentUser
+              ? colorScheme.primary.withOpacity(0.2)
+              : colorScheme.surfaceVariant.withOpacity(0.6),
+        ),
+        child: CircleAvatar(
+          backgroundColor: member.user.isCurrentUser
+              ? colorScheme.primary
+              : colorScheme.secondaryContainer,
+          foregroundColor: member.user.isCurrentUser
+              ? colorScheme.onPrimary
+              : colorScheme.onSecondaryContainer,
+          child: Text(
+            member.initial,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+      title: Text(
+        member.displayName,
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        subtitleParts.join(' • '),
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+      trailing: member.user.isCurrentUser
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'You',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+class _EmptyCollaboratorsView extends StatelessWidget {
+  const _EmptyCollaboratorsView();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceVariant.withOpacity(0.6),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(
+            Icons.lock_person_rounded,
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Only you can see this space for now.',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'When you invite collaborators, the space will sync '
+          'across their devices as well.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _roleDescription(SpaceRole role) {
+  switch (role) {
+    case SpaceRole.owner:
+      return 'Owner';
+    case SpaceRole.editor:
+      return 'Can edit';
+    case SpaceRole.viewer:
+      return 'Can view';
+  }
+  throw StateError('Unhandled space role: $role');
+}
+
+String _visibilityDescription(AttachmentVisibility visibility) {
+  switch (visibility) {
+    case AttachmentVisibility.shared:
+      return 'Shares photos by default';
+    case AttachmentVisibility.private:
+      return 'Keeps photos private';
+  }
+  throw StateError('Unhandled attachment visibility: $visibility');
 }
