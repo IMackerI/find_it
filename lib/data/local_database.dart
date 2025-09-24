@@ -8,6 +8,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/widgets.dart' show Offset, Size;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart';
 
 import '../models/item_model.dart';
 import '../models/space_member.dart';
@@ -21,6 +22,7 @@ const _dbName = 'spaces.db';
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
+    await applyWorkaroundToOpenSqlite3OnOldAndroidVersions();
     final directory = await getApplicationDocumentsDirectory();
     final file = File(p.join(directory.path, _dbName));
     return NativeDatabase(file, logStatements: false);

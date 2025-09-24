@@ -23,14 +23,14 @@ Future<void> main() async {
     'FIND_IT_SYNC_URL',
     defaultValue: '',
   );
-  final RemoteApiClient remoteApiClient = syncBaseUrl.isEmpty
-      ? NoopRemoteApiClient()
-      : createHttpRemoteApiClient(baseUrl: syncBaseUrl);
-
-  final syncService = SyncService(
-    database: database,
-    apiClient: remoteApiClient,
-  );
+  SyncService? syncService;
+  if (syncBaseUrl.isNotEmpty) {
+    final remoteApiClient = createHttpRemoteApiClient(baseUrl: syncBaseUrl);
+    syncService = SyncService(
+      database: database,
+      apiClient: remoteApiClient,
+    );
+  }
 
   final themeController = ThemeController();
   runApp(
