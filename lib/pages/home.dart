@@ -340,6 +340,17 @@ class _SpaceCard extends StatelessWidget {
     final theme = Theme.of(context);
     final extras = theme.extension<AppThemeColors>()!;
     final colorScheme = theme.colorScheme;
+    final collaborators = space.collaborators;
+    final sharedWithOthers =
+        collaborators.where((member) => !member.user.isCurrentUser).length;
+    final bool isShared = sharedWithOthers > 0;
+    final String shareLabel = isShared
+        ? 'Shared with ${sharedWithOthers == 1 ? '1 person' : '$sharedWithOthers people'}'
+        : 'Private to you';
+    final IconData shareIcon =
+        isShared ? Icons.group_outlined : Icons.lock_outline_rounded;
+    final Color shareColor =
+        colorScheme.onPrimaryContainer.withOpacity(isShared ? 0.95 : 0.7);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -398,6 +409,25 @@ class _SpaceCard extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                         color: colorScheme.onPrimaryContainer,
                       ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(shareIcon, size: 18, color: shareColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            shareLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: shareColor,
+                              fontWeight:
+                                  isShared ? FontWeight.w600 : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Text(

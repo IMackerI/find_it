@@ -3,10 +3,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
-import 'package:find_it/models/item_model.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
+
+import 'item_model.dart';
+import 'space_member.dart';
 
 class SpaceModel {
+  final String id;
   Offset position = Offset.zero;
   Size size = Size.zero;
   String name;
@@ -14,20 +18,39 @@ class SpaceModel {
   SpaceModel? parent;
   List<SpaceModel> mySpaces;
   List<ItemModel> items;
+  List<SpaceMember> collaborators;
 
   static List<SpaceModel> currentSpaces = [];
+  static SpaceStorage? _storage;
+
+  static void configureStorage(SpaceStorage storage) {
+    _storage = storage;
+  }
+
+  static SpaceStorage get _spaceStorage {
+    final storage = _storage;
+    if (storage == null) {
+      throw StateError('Space storage has not been configured.');
+    }
+    return storage;
+  }
 
   SpaceModel({
+    String? id,
     required this.name,
     this.position = Offset.zero,
     this.size = Size.zero,
     List<SpaceModel>? mySpaces,
     List<ItemModel>? items,
+    List<SpaceMember>? collaborators,
     this.parent,
-  })  : mySpaces = List<SpaceModel>.from(mySpaces ?? const []),
-        items = List<ItemModel>.from(items ?? const []);
+  })  : id = id ?? const Uuid().v4(),
+        mySpaces = List<SpaceModel>.from(mySpaces ?? const []),
+        items = List<ItemModel>.from(items ?? const []),
+        collaborators = List<SpaceMember>.from(collaborators ?? const []);
 
   Map<dynamic, dynamic> toJson() => {
+        'id': id,
         'name': name,
         'position': {
           'dx': position.dx,
@@ -39,10 +62,13 @@ class SpaceModel {
         },
         'mySpaces': mySpaces.map((space) => space.toJson()).toList(),
         'items': items.map((item) => item.toJson()).toList(),
+        'collaborators':
+            collaborators.map((member) => member.toJson()).toList(),
       };
 
   static SpaceModel fromJson(Map<dynamic, dynamic> json) {
     SpaceModel ret = SpaceModel(
+      id: json['id'],
       name: json['name'],
       position: Offset(json['position']['dx'], json['position']['dy']),
       size: Size(json['size']['width'], json['size']['height']),
@@ -56,6 +82,16 @@ class SpaceModel {
           ? List<ItemModel>.from(
               (json['items'] as List<dynamic>)
                   .map((itemJson) => ItemModel.fromJson(itemJson)),
+            )
+          : [],
+      collaborators: json['collaborators'] != null
+          ? List<SpaceMember>.from(
+              (json['collaborators'] as List<dynamic>)
+                  .whereType<Map<dynamic, dynamic>>()
+                  .map(
+                    (memberJson) =>
+                        SpaceMember.fromJson(Map<String, dynamic>.from(memberJson)),
+                  ),
             )
           : [],
     );
@@ -84,6 +120,7 @@ class SpaceModel {
   void _prepareForPersistence() {
     mySpaces = List<SpaceModel>.from(mySpaces);
     items = List<ItemModel>.from(items);
+    collaborators = List<SpaceMember>.from(collaborators);
 
     double sanitizeCoordinate(double value) {
       if (!value.isFinite) {
@@ -184,10 +221,7 @@ class SpaceModel {
       for (final space in currentSpaces) {
         space._prepareForPersistence();
       }
-      final file = await _localFile;
-      final payload =
-          jsonEncode(currentSpaces.map((space) => space.toJson()).toList());
-      await file.writeAsString(payload);
+      await _spaceStorage.saveSpaces(currentSpaces);
       debugPrint('items saved');
       return true;
     } catch (e, stackTrace) {
@@ -198,27 +232,16 @@ class SpaceModel {
 
   static Future<void> loadItems() async {
     try {
-      final file = await _localFile;
-      if (!file.existsSync()) {
-        currentSpaces = [];
-        return;
+      currentSpaces = await _spaceStorage.loadSpaces();
+      if (currentSpaces.isEmpty) {
+        final migratedSpaces = await _loadFromLegacyFile();
+        if (migratedSpaces.isNotEmpty) {
+          currentSpaces = migratedSpaces;
+          await _spaceStorage.saveSpaces(currentSpaces);
+        }
       }
-      final contents = await file.readAsString();
-      if (contents.trim().isEmpty) {
-        currentSpaces = [];
-        return;
-      }
-      final dynamic jsonData = jsonDecode(contents);
-      if (jsonData is! List) {
-        currentSpaces = [];
-        return;
-      }
-      currentSpaces = jsonData
-          .whereType<Map<dynamic, dynamic>>()
-          .map((item) => SpaceModel.fromJson(item))
-          .toList();
       for (final space in currentSpaces) {
-        space._prepareForPersistence();
+        space.assignParents();
       }
       debugPrint('items loaded');
     } catch (e, stackTrace) {
@@ -226,4 +249,38 @@ class SpaceModel {
       currentSpaces = [];
     }
   }
+
+  static Future<List<SpaceModel>> _loadFromLegacyFile() async {
+    try {
+      final file = await _localFile;
+      if (!file.existsSync()) {
+        return [];
+      }
+      final contents = await file.readAsString();
+      if (contents.trim().isEmpty) {
+        return [];
+      }
+      final dynamic jsonData = jsonDecode(contents);
+      if (jsonData is! List) {
+        return [];
+      }
+      final spaces = jsonData
+          .whereType<Map<dynamic, dynamic>>()
+          .map((item) => SpaceModel.fromJson(item))
+          .toList();
+      for (final space in spaces) {
+        space._prepareForPersistence();
+      }
+      debugPrint('items loaded from legacy json');
+      return spaces;
+    } catch (e, stackTrace) {
+      debugPrint('Failed to load legacy items: $e\n$stackTrace');
+      return [];
+    }
+  }
+}
+
+abstract class SpaceStorage {
+  Future<void> saveSpaces(List<SpaceModel> spaces);
+  Future<List<SpaceModel>> loadSpaces();
 }
