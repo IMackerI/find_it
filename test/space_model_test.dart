@@ -29,7 +29,7 @@ void main() {
   });
 
   tearDown(() {
-    SpaceModel.currentSpaces = [];
+    SpaceModel.updateCurrentSpaces(const <SpaceModel>[]);
     PathProviderPlatform.instance = originalPlatform;
   });
 
@@ -161,8 +161,7 @@ void main() {
         ],
       );
 
-      SpaceModel.currentSpaces = [office];
-      office.assignParents();
+      SpaceModel.updateCurrentSpaces([office]);
 
       final success = await SpaceModel.saveItems();
       expect(success, isTrue);
@@ -170,7 +169,7 @@ void main() {
       final savedDatabase = File(p.join(tempDir.path, 'spaces.db'));
       expect(savedDatabase.existsSync(), isTrue);
 
-      SpaceModel.currentSpaces = [];
+      SpaceModel.updateCurrentSpaces(const <SpaceModel>[]);
 
       await SpaceModel.loadItems();
 

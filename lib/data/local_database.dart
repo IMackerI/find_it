@@ -18,6 +18,7 @@ import 'remote/models.dart';
 part 'local_database.g.dart';
 
 const _dbName = 'spaces.db';
+const _syncStateTableName = 'sync_state';
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
@@ -202,6 +203,9 @@ class LocalDatabase extends _$LocalDatabase {
           if (from < 3) {
             await m.createTable(outboxEntriesTable);
           }
+        },
+        beforeOpen: (details) async {
+          await _ensureSyncStateTable();
         },
       );
 
@@ -906,16 +910,37 @@ class LocalDatabase extends _$LocalDatabase {
     await (delete(outboxEntriesTable)..where((tbl) => tbl.id.isIn(ids))).go();
   }
 
-  Future<void> applyRemoteChanges(SyncResponse response) async {
+  Future<bool> applyRemoteChanges(SyncResponse response) async {
+    var changed = false;
     await transaction(() async {
-      await _applyRemoteUsers(response.users);
-      await _applyRemoteSpaces(response.spaces);
-      await _applyRemoteItems(response.items);
-      await _applyRemoteMemberships(response.memberships);
+      final usersChanged = await _applyRemoteUsers(response.users);
+      final spacesChanged = await _applyRemoteSpaces(response.spaces);
+      final itemsChanged = await _applyRemoteItems(response.items);
+      final membershipsChanged =
+          await _applyRemoteMemberships(response.memberships);
+      changed =
+          usersChanged || spacesChanged || itemsChanged || membershipsChanged;
     });
+    return changed;
   }
 
-  Future<void> _applyRemoteUsers(List<RemoteUser> users) async {
+  Future<void> saveSyncCursor(String? cursor) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    await customStatement(
+      'UPDATE $_syncStateTableName SET cursor = ?, updated_at = ? WHERE id = 1',
+      [cursor, timestamp],
+    );
+  }
+
+  Future<String?> loadSyncCursor() async {
+    final row = await customSelect(
+      'SELECT cursor FROM $_syncStateTableName WHERE id = 1',
+    ).getSingleOrNull();
+    return row?.readNullable<String>('cursor');
+  }
+
+  Future<bool> _applyRemoteUsers(List<RemoteUser> users) async {
+    var changed = false;
     for (final user in users) {
       final existing = await (select(usersTable)
             ..where((tbl) => tbl.id.equals(user.id)))
@@ -943,14 +968,18 @@ class LocalDatabase extends _$LocalDatabase {
           data.copyWith(id: Value(user.id)),
           mode: InsertMode.insertOrReplace,
         );
+        changed = true;
       } else {
         await (update(usersTable)..where((tbl) => tbl.id.equals(user.id)))
             .write(data);
+        changed = true;
       }
     }
+    return changed;
   }
 
-  Future<void> _applyRemoteSpaces(List<RemoteSpace> spaces) async {
+  Future<bool> _applyRemoteSpaces(List<RemoteSpace> spaces) async {
+    var changed = false;
     for (final space in spaces) {
       final existing = await (select(spacesTable)
             ..where((tbl) => tbl.id.equals(space.id)))
@@ -980,14 +1009,18 @@ class LocalDatabase extends _$LocalDatabase {
           data.copyWith(id: Value(space.id)),
           mode: InsertMode.insertOrReplace,
         );
+        changed = true;
       } else {
         await (update(spacesTable)..where((tbl) => tbl.id.equals(space.id)))
             .write(data);
+        changed = true;
       }
     }
+    return changed;
   }
 
-  Future<void> _applyRemoteItems(List<RemoteItem> items) async {
+  Future<bool> _applyRemoteItems(List<RemoteItem> items) async {
+    var changed = false;
     for (final item in items) {
       final existing = await (select(itemsTable)
             ..where((tbl) => tbl.id.equals(item.id)))
@@ -1017,15 +1050,19 @@ class LocalDatabase extends _$LocalDatabase {
           data.copyWith(id: Value(item.id)),
           mode: InsertMode.insertOrReplace,
         );
+        changed = true;
       } else {
         await (update(itemsTable)..where((tbl) => tbl.id.equals(item.id)))
             .write(data);
+        changed = true;
       }
     }
+    return changed;
   }
 
-  Future<void> _applyRemoteMemberships(
+  Future<bool> _applyRemoteMemberships(
       List<RemoteMembership> memberships) async {
+    var changed = false;
     for (final membership in memberships) {
       final existing = await (select(spaceMembershipsTable)
             ..where((tbl) =>
@@ -1058,18 +1095,35 @@ class LocalDatabase extends _$LocalDatabase {
           ),
           mode: InsertMode.insertOrReplace,
         );
+        changed = true;
       } else {
         await (update(spaceMembershipsTable)
               ..where((tbl) =>
                   tbl.spaceId.equals(membership.spaceId) &
                   tbl.userId.equals(membership.userId)))
             .write(data);
+        changed = true;
       }
     }
+    return changed;
   }
 
   Future<void> dispose() async {
     await close();
+  }
+
+  Future<void> _ensureSyncStateTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS $_syncStateTableName (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        cursor TEXT,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await customStatement('''
+      INSERT OR IGNORE INTO $_syncStateTableName (id, cursor, updated_at)
+      VALUES (1, NULL, 0)
+    ''');
   }
 
   Future<void> _enqueueMutation({

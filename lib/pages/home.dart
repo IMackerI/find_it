@@ -191,9 +191,17 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<SpaceModel>>(
+      valueListenable: SpaceModel.spacesListenable,
+      builder: (context, spaces, _) {
+        return _buildScaffold(context, spaces);
+      },
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context, List<SpaceModel> spaces) {
     final theme = Theme.of(context);
     final extras = theme.extension<AppThemeColors>()!;
-    final spaces = SpaceModel.currentSpaces;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
